@@ -21,6 +21,9 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 | `stripe_pull.py` | Saves invoices, subscriptions, customers and products from Stripe to the workspace |
 | `mrr.py` | Pure logic: per-customer monthly MRR, the movements, and the draft (`draft.json`, `ledger.md`) |
 | `test_mrr.py` | One case per rule, each named after the account that showed it |
+| `sql/deal_snapshots.sql` | Month-boundary snapshots of HubSpot deals, run in Metabase |
+| `pipeline.py` | Pipeline roll-forward per block (Direct, Reseller, Upsell) from those snapshots |
+| `draft_workbook.py` | A review copy of the workbook with the reported months filled, plus Sources and ledger tabs |
 
 ```bash
 python3 scripts/board-kpis/stripe_pull.py   # -> .board-kpis/*.json
@@ -119,6 +122,49 @@ cancellations in the sheet don't agree with the sheet's own Churn Inputs tab,
 and a Bedzzz expansion was never entered. Treat a difference on a month from
 before automation as a question about the sheet first.
 
+## Pipeline (rows 95-104, 152-161, 199-208)
+
+HubSpot's API has no history, so the pipeline comes from the Fivetran sync
+in Metabase (database "Untitled Internal"): `hubspot.deal_stage` for stage
+changes and `hubspot.deal_property_history` for amount. Run
+`sql/deal_snapshots.sql` with the first and last month boundary filled in,
+save the rows as a JSON list to `.board-kpis/deal_snapshots.json`, then
+`python3 scripts/board-kpis/pipeline.py`.
+
+- Direct is the Opportunity and Enterprise pipelines with Account Type
+  Single Brand or Brand of Brands; Reseller is the same pipelines with Agency
+  Reseller or Data Integration Partner; Upsell is the Expansion pipeline.
+- Account Type is read as it is today. Deals get tagged a week or two after
+  they are created, and July only ties this way.
+- Deals created in the month are Created. Older deals moving up from
+  Qualification are an Increase.
+- Ending is the open deals at month end, and the flows tie to it by
+  construction.
+- The 2026-07-27 bulk move of about 1,500 legacy deals into Opportunity
+  Closed Won/Lost is excluded in the SQL.
+
+Backtested on July 2026: Ending ties in all three blocks, and Created
+(count and value), Won and Lost tie for Direct. The sheet's typed
+Increase/Decrease never rolled forward to its own Ending, so those two rows
+differ.
+
+## MQLs (rows 40, 42)
+
+Row 40 is Metabase question 139: contacts created in the month from Organic
+Search, Paid Search, Email Marketing, Paid Social, Social Media or AI
+Referrals, excluding gmail.com. Row 42 counts the month's new Stripe
+customers whose email domain matches a contact in that population. Both go
+in `.board-kpis/mqls.json`.
+
+## The review workbook
+
+Export the live workbook from Drive as .xlsx to `.board-kpis/kpi_export.xlsx`
+and run `python3 scripts/board-kpis/draft_workbook.py`. It writes
+`kpi_draft.xlsx` with July's formulas moved across to the new months, the
+inputs filled, cancellations appended to Churn Inputs, and a Sources tab
+naming where every filled cell came from and which cells still need a
+person (trials, CTAM, reseller end clients, CAC inputs).
+
 ## Not built yet
 
 - **Writing to the sheet.** This needs the service account in
@@ -126,4 +172,5 @@ before automation as a question about the sheet first.
   empty input cells for the reported month. Separately, a one-time,
   explicitly approved change adds the Reseller Reactivation row and extends
   the August and September formulas.
-- **Customer counts, pipeline, MQLs and CAC.** These are later phases.
+- **Trials, CTAM, reseller end clients and CAC.** Trials need PostHog, CAC
+  needs payroll and ad spend (Ramp), and the other two are estimates.

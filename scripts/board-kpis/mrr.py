@@ -246,7 +246,8 @@ def fill_pending(mrr, seen, subscriptions, products, config, month, run_month):
     An arrears customer with nothing in the month counts at its whole
     current subscription. Anyone else's client-account items that no line
     reached in the month count at their current quantity and price, so a
-    renewal invoice not yet issued does not read as a contraction."""
+    renewal invoice not yet issued does not read as a contraction. A
+    subscription that started after the month carries nothing into it."""
     if shift(month, 1) < run_month:
         return []
     names = {p["id"]: p.get("name", "") for p in products}
@@ -257,6 +258,8 @@ def fill_pending(mrr, seen, subscriptions, products, config, month, run_month):
         cid = customer_id(sub)
         if sub.get("status") not in LIVE:
             continue
+        if sub.get("start_date") and month_of(sub["start_date"]) > month:
+            continue  # signed after this month, so nothing to carry (Stockyard Media Haus)
         if cid in arrears:
             if mrr[cid][month]["total"] > 0:
                 continue
@@ -305,6 +308,32 @@ def ended_before(subscriptions, products, config, month):
     return out
 
 
+def customer_dates(subscriptions, products, config):
+    """{customer: (first paid subscription start, last end)} as Stripe timestamps.
+    The Churn Inputs tab's Stripe Start Date and Stripe End Date."""
+    names = {p["id"]: p.get("name", "") for p in products}
+    excluded = set(config["excluded_products"])
+    out = {}
+    for sub in subscriptions:
+        paid = any(names.get(it["price"]["product"] if isinstance(it["price"]["product"], str)
+                             else it["price"]["product"]["id"], "") not in excluded
+                   for it in sub["items"]["data"])
+        if not paid:
+            continue
+        cid = customer_id(sub)
+        start = sub.get("start_date") or sub.get("created")
+        first, last = out.get(cid, (None, None))
+        first = start if first is None or (start and start < first) else first
+        end = sub.get("ended_at")
+        last = end if end and (last is None or end > last) else last
+        out[cid] = (first, last)
+    return out
+
+
+def day(ts):
+    return dt.datetime.fromtimestamp(ts, dt.timezone.utc).strftime("%Y-%m-%d") if ts else None
+
+
 def run(invoices, subscriptions, customers, products, config, run_month):
     """The draft: per reported month, the sheet inputs and the ledger rows."""
     mrr, seen = build(invoices, products, config, subscriptions)
@@ -316,6 +345,7 @@ def run(invoices, subscriptions, customers, products, config, run_month):
     for month in [shift(first, -1)] + months:
         filled[month] = fill_pending(mrr, seen, subscriptions, products, config, month, run_month)
 
+    dates = customer_dates(subscriptions, products, config)
     cust = {c["id"]: c for c in customers}
     name = lambda cid: (cust.get(cid, {}).get("name") or cid).strip()
     channel = lambda cid: (cust.get(cid, {}).get("metadata") or {}).get("client_type")
@@ -358,6 +388,22 @@ def run(invoices, subscriptions, customers, products, config, run_month):
             })
         rows.sort(key=lambda r: (r["channel"], KINDS.index(r["kind"]), -abs(r["change"])))
 
+        # Customer counts follow the movements: a reactivation is a customer
+        # gained, a cancellation one lost.
+        counts = {ch: {"new": sum(1 for r in rows if r["channel"] == ch
+                                  and r["kind"] in ("new", "reactivation")),
+                       "churned": sum(1 for r in rows if r["channel"] == ch
+                                      and r["kind"] == "cancellation")} for ch in CHANNELS}
+        churn_rows = []
+        for r in rows:
+            if r["kind"] != "cancellation":
+                continue
+            start, end = dates.get(r["customer_id"], (None, None))
+            days = (end - start) // 86400 if start and end else None
+            churn_rows.append({"client": r["customer"], "customer_type": r["channel"],
+                               "mrr": r["before"], "start": day(start), "end": day(end),
+                               "days": days})
+
         entry = {
             "month": month,
             "beginning": {k: round(v, 2) for k, v in beginning.items()},
@@ -365,6 +411,8 @@ def run(invoices, subscriptions, customers, products, config, run_month):
             "ending": {k: round(v, 2) for k, v in ending.items()},
             "direct_services_mrr": round(services, 2),
             "carried_forward": sorted(name(cid) for cid in filled.get(month, [])),
+            "customers": counts,
+            "churn_rows": churn_rows,
             "ledger": rows,
         }
         rebase = config.get("rebase") or {}
@@ -392,6 +440,9 @@ def ledger_markdown(draft):
             lines.append("| %s | %s | %s |" % (k.capitalize(), money(m["inputs"]["Direct"][k]), money(m["inputs"]["Reseller"][k])))
         lines.append("| Ending MRR | %s | %s |" % (money(m["ending"]["Direct"]), money(m["ending"]["Reseller"])))
         lines += ["", "Direct services MRR (Shopify Development): %s" % money(m["direct_services_mrr"])]
+        lines.append("Customers: Direct +%d / -%d, Reseller +%d / -%d" % (
+            m["customers"]["Direct"]["new"], m["customers"]["Direct"]["churned"],
+            m["customers"]["Reseller"]["new"], m["customers"]["Reseller"]["churned"]))
         if "rebase_adjustment" in m:
             a = m["rebase_adjustment"]
             lines.append("Rebase adjustment vs the sheet's prior ending: Direct %s, Reseller %s"
