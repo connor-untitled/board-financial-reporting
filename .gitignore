@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Each routine writes its Stripe pull and output here on every run.
+.board-kpis/
+.rev-rec/
