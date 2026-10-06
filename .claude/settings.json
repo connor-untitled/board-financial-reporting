@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/board-kpis/stripe_pull.py)",
+      "Bash(python3 scripts/board-kpis/mrr.py)",
+      "Bash(python3 scripts/board-kpis/test_mrr.py)",
+
+      "Bash(python3 scripts/rev-rec/run.py)",
+      "Bash(python3 scripts/rev-rec/test_rows.py)",
+
+      "mcp__Slack__slack_search_users",
+      "mcp__Slack__slack_send_message"
+    ]
+  }
+}

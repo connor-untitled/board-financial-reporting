@@ -1,0 +1,31 @@
+{
+  "_comment": "See README.md for what each key means and when to change it.",
+  "stripe_account": "acct_1DW76WDMe00hiO0k",
+  "history_start": "2025-06-01",
+  "first_month": "2026-08",
+  "rebase": {
+    "month": "2026-08",
+    "sheet_prior_ending": {"Direct": 44950, "Reseller": 23100}
+  },
+  "excluded_products": [
+    "Untitled - Free Trial",
+    "Consumption Fees",
+    "Lead Data Stream Consumption Fees"
+  ],
+  "services_products": ["Shopify Development"],
+  "client_account_products": ["Untitled Client Accounts"],
+  "arrears_customers": {
+    "cus_T6PHyFO313HJe5": "Agency in Pursuit",
+    "cus_QjyLCnr4Mr6ZAP": "Cumulus Media",
+    "cus_Rm8zdZyXFGpzh1": "Dealer Verge",
+    "cus_T9pzaD0l2hkCsJ": "Ez As Pie",
+    "cus_Ryif9NgssRyvwz": "Hatfield Media",
+    "cus_PwRzcOqEuZYjlT": "L2T Media",
+    "cus_QNQneDMHvwGAnv": "NeuroGraph",
+    "cus_QgxwXbykpZxcFc": "Ramey",
+    "cus_RxdB9CpTzSuQ0z": "Red Rocket Studios, LLC",
+    "cus_PodEbqNL4Vbl6j": "RedTag Digital",
+    "cus_T2113bqX3VYv7z": "Stone Path Consulting",
+    "cus_ShjJraYEvcjNxL": "Ticketsauce.com, Inc."
+  }
+}
