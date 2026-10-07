@@ -190,13 +190,18 @@ def gaps(d, month):
     for row, why in ((41, "Trial activations come from PostHog, which is not connected to this session"),
                      (46, "New trials come from PostHog, which is not connected to this session"),
                      (171, "Estimated CTAM is a manual estimate"),
-                     (172, "Total active reseller clients: Stripe's client-account product only began in August 2026 (5 accounts), so it cannot give this. Likely the Reseller End-Clients tab or consumption data"),
-                     (185, "Typed as 0% every month; left as the sheet has it. Should it be a formula like the Direct block's?"),
-                     (186, "Typed as 0% every month; left as the sheet has it.")):
+                     (172, "Total active reseller clients: Stripe's client-account product only began in August 2026 (5 accounts), so it cannot give this. Likely the Reseller End-Clients tab or consumption data")):
         d.gap(month, row, why)
-    if d.ws.cell(185, column(month)).value is None:
-        d.ws.cell(185, column(month)).value = 0
-        d.ws.cell(186, column(month)).value = 0
+    # Reseller $ churn rates, built like the Direct block's rows 127-128
+    # (typed as 0% on the sheet before August 2026).
+    x = col_letter(column(month))
+    for row, formula, label in ((185, "=(%s143+%s144)/%s145" % (x, x, x), "same as Direct row 127: (Contraction + Cancellation) / Ending MRR"),
+                                (186, "=%s184/%s145" % (x, x), "same as Direct row 128: Net Monthly Churn / Ending MRR")):
+        cell = d.ws.cell(row, column(month))
+        cell.value = formula
+        cell.number_format = d.ws.cell(127 if row == 185 else 128, TEMPLATE_COL).number_format
+        d.sources.append([month, "%s%d" % (x, row), d.ws.cell(row, 1).value, formula, "Formula, " + label,
+                          "Row 184 nets out Expansion, where Direct row 126 nets out New MRR" if row == 186 else ""])
 
 
 CAC = "CAC Inputs"
@@ -289,7 +294,8 @@ RECON_NOTES = [
 OPEN_ITEMS = [
     "July New Customers (AL51) is typed as 8; AL109 + AL166 = 9. Aug/Sep use the formula.",
     "Customer counts rebase to Stripe in August, like MRR: Direct starts at 55 (sheet had 56) and Reseller at 34 (sheet had 33).",
-    "Reseller $ churn rates (rows 185-186) are typed as 0% every month; left as is.",
+    "Reseller $ churn rates (rows 185-186) now use the Direct block's formulas from August 2026; earlier months are still typed 0%, so the TTM averages (rows 187-188) understate until a year of real values builds up.",
+    "Reseller Net Monthly Churn (row 184) subtracts Expansion, while Direct (row 126) subtracts New MRR. Left as the sheet has it.",
     "July MQLs: sheet has 23, Metabase question 139 gives 32 today (23 is the Organic Search count alone).",
     "MQL to customer: July backtests to 2 (My Marketing Department, CLINQ ZERO) against the sheet's 1.",
     "Qualification-pipeline deals fell from about 75 a month to 15 (Aug) and 14 (Sep), and MQLs fell to 13 in August. Worth confirming the inbound deal workflow did not change.",
