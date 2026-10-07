@@ -340,10 +340,20 @@ def _():
             subscription("sub_2", "c2", start="2026-09-01")]
     d = run(inv, subs, [customer("c1", name="Gone"), customer("c2", "Reseller")])
     sep = month(d, "2026-09")
-    assert sep["customers"] == {"Direct": {"new": 0, "churned": 1},
-                                "Reseller": {"new": 1, "churned": 0}}, sep["customers"]
+    assert sep["customers"] == {"Direct": {"new": 0, "churned": 1, "beginning": 1, "ending": 0},
+                                "Reseller": {"new": 1, "churned": 0, "beginning": 0, "ending": 1}}, sep["customers"]
     assert sep["churn_rows"] == [{"client": "Gone", "customer_type": "Direct", "mrr": 500,
                                   "start": "2026-06-01", "end": "2026-09-15", "days": 106}], sep
+
+
+@case("the rebase month reports the customer-count gap to the sheet's prior ending")
+def _():
+    cfg = config(rebase={"month": "2026-08", "sheet_prior_ending": {"Direct": 500, "Reseller": 0},
+                         "sheet_prior_customers": {"Direct": 2, "Reseller": 0}})
+    d = run(monthly("c1", "2026-07", "2026-10", 50000), [], [customer("c1")], cfg)
+    aug = month(d, "2026-08")
+    assert aug["customers"]["Direct"]["beginning"] == 1 and aug["customers"]["Direct"]["ending"] == 1, aug
+    assert aug["customer_rebase_adjustment"] == {"Direct": -1, "Reseller": 0}, aug
 
 
 def main():

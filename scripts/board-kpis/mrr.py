@@ -363,6 +363,7 @@ def run(invoices, subscriptions, customers, products, config, run_month):
 
         beginning = {ch: 0.0 for ch in CHANNELS}
         ending = {ch: 0.0 for ch in CHANNELS}
+        paying = {ch: {"beginning": 0, "ending": 0} for ch in CHANNELS}
         services = 0.0
         sums = {ch: {k: 0.0 for k in KINDS} for ch in CHANNELS}
         rows = []
@@ -373,6 +374,8 @@ def run(invoices, subscriptions, customers, products, config, run_month):
             before, after = mrr[cid][prev]["total"], mrr[cid][month]["total"]
             beginning[ch] += before
             ending[ch] += after
+            paying[ch]["beginning"] += before > 0.005
+            paying[ch]["ending"] += after > 0.005
             if ch == "Direct":
                 services += mrr[cid][month]["services"]
             kind = classify(before, after, cid in earlier)
@@ -393,7 +396,9 @@ def run(invoices, subscriptions, customers, products, config, run_month):
         counts = {ch: {"new": sum(1 for r in rows if r["channel"] == ch
                                   and r["kind"] in ("new", "reactivation")),
                        "churned": sum(1 for r in rows if r["channel"] == ch
-                                      and r["kind"] == "cancellation")} for ch in CHANNELS}
+                                      and r["kind"] == "cancellation"),
+                       "beginning": paying[ch]["beginning"],
+                       "ending": paying[ch]["ending"]} for ch in CHANNELS}
         churn_rows = []
         for r in rows:
             if r["kind"] != "cancellation":
@@ -419,6 +424,10 @@ def run(invoices, subscriptions, customers, products, config, run_month):
         if rebase.get("month") == month:
             entry["rebase_adjustment"] = {
                 ch: round(beginning[ch] - rebase["sheet_prior_ending"][ch], 2) for ch in CHANNELS}
+            prior_count = rebase.get("sheet_prior_customers")
+            if prior_count:
+                entry["customer_rebase_adjustment"] = {
+                    ch: paying[ch]["beginning"] - prior_count[ch] for ch in CHANNELS}
         out["months"].append(entry)
     return out
 
@@ -443,6 +452,10 @@ def ledger_markdown(draft):
         lines.append("Customers: Direct +%d / -%d, Reseller +%d / -%d" % (
             m["customers"]["Direct"]["new"], m["customers"]["Direct"]["churned"],
             m["customers"]["Reseller"]["new"], m["customers"]["Reseller"]["churned"]))
+        if "customer_rebase_adjustment" in m:
+            a = m["customer_rebase_adjustment"]
+            lines.append("Customer count rebase vs the sheet's prior ending: Direct %+d, Reseller %+d"
+                         % (a["Direct"], a["Reseller"]))
         if "rebase_adjustment" in m:
             a = m["rebase_adjustment"]
             lines.append("Rebase adjustment vs the sheet's prior ending: Direct %s, Reseller %s"

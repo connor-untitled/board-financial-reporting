@@ -129,6 +129,12 @@ def fill_stripe(d, m, mrr, history):
               "Replaces =AL145. The sheet's July ending was off by %s" % a["Reseller"])
 
     cust = m["customers"]
+    if "customer_rebase_adjustment" in m:
+        a = m["customer_rebase_adjustment"]
+        d.put(month, 108, cust["Direct"]["beginning"], "Stripe paying customers at July month end (rebase)",
+              "Replaces =AL111. The sheet's July ending was off by %+d" % a["Direct"])
+        d.put(month, 165, cust["Reseller"]["beginning"], "Stripe paying customers at July month end (rebase)",
+              "Replaces =AL168. The sheet's July ending was off by %+d" % a["Reseller"])
     d.put(month, 109, cust["Direct"]["new"], src, "New plus reactivated Direct customers in the MRR ledger")
     d.put(month, 110, cust["Direct"]["churned"], src, "Direct cancellations in the MRR ledger")
     d.put(month, 166, cust["Reseller"]["new"], src, "New plus reactivated Reseller customers in the MRR ledger")
@@ -282,7 +288,7 @@ RECON_NOTES = [
 
 OPEN_ITEMS = [
     "July New Customers (AL51) is typed as 8; AL109 + AL166 = 9. Aug/Sep use the formula.",
-    "Customer counts chain from the sheet's July ending (Direct 56, Reseller 33). Stripe has 55 and 34 paying at July end, so each channel is one off. Rebase like MRR?",
+    "Customer counts rebase to Stripe in August, like MRR: Direct starts at 55 (sheet had 56) and Reseller at 34 (sheet had 33).",
     "Reseller $ churn rates (rows 185-186) are typed as 0% every month; left as is.",
     "July MQLs: sheet has 23, Metabase question 139 gives 32 today (23 is the Organic Search count alone).",
     "MQL to customer: July backtests to 2 (My Marketing Department, CLINQ ZERO) against the sheet's 1.",

@@ -8,6 +8,10 @@
     "sheet_prior_ending": {
       "Direct": 44950,
       "Reseller": 23100
+    },
+    "sheet_prior_customers": {
+      "Direct": 56,
+      "Reseller": 33
     }
   },
   "excluded_products": [

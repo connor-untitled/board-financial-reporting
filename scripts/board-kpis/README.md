@@ -113,8 +113,11 @@ Direct was $1,550 too high and Reseller about $1,050 too low. No single
 account caused it. It came from hand-entered movements over time, and both
 Stripe and the Rev Rec workbook agree on the customer roster. So August 2026
 starts from the Stripe roster, and the draft reports the difference once as
-`rebase_adjustment`. `config.json` holds the sheet's July ending that it is
-measured against. After August, `rebase` has no effect.
+`rebase_adjustment`. Customer counts rebase the same way: August's
+Beginning # of Direct customers and Resellers (rows 108 and 165) are Stripe's
+paying customers at July month end, and the gap to the sheet (Direct 56 vs
+55, Reseller 33 vs 34) is reported as `customer_rebase_adjustment`.
+`config.json` holds the sheet's July endings that both are measured against. After August, `rebase` has no effect.
 
 ## Backtest
 
