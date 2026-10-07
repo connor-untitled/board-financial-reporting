@@ -272,6 +272,14 @@ def cac_variance_rows(cac):
     return rows + [[]] + [[n] for n in CAC_NOTES]
 
 
+RECON_NOTES = [
+    "Gap = Stripe (current method) minus the sheet's ending MRR. August 2026 rebases both channels to Stripe, so the July gap is booked once.",
+    "Through April 2024 the sheet carried up to ~$18k more Direct MRR than Stripe while customers moved onto Stripe; by May 2024 the two agreed within $250.",
+    "Direct, July 2026 -$1,550: since May 2024 the sheet typed $1,250 less Direct churn than its own Churn Inputs list (June 2024 -$2,250, mostly Lascana $2,000; July 2025 -$750). The other ~$300 is month-to-month timing.",
+    "Reseller, July 2026 +$1,050: Stripe has run $1,050 to $5,800 above the sheet since October 2024, mostly reseller expansions and client-account changes the sheet did not book.",
+]
+
+
 OPEN_ITEMS = [
     "July New Customers (AL51) is typed as 8; AL109 + AL166 = 9. Aug/Sep use the formula.",
     "Customer counts chain from the sheet's July ending (Direct 56, Reseller 33). Stripe has 55 and 34 paying at July end, so each channel is one off. Rebase like MRR?",
@@ -354,6 +362,15 @@ def main():
                                          "Ramp minus platform", "Platform source"], cac_variance_rows(cac))
     ws.column_dimensions["A"].width = 14
     ws.column_dimensions["B"].width = 22
+    try:
+        recon = load("ending_recon.json")["rows"]
+    except FileNotFoundError:
+        recon = []
+    if recon:
+        ws = ledger_tab(wb, "Ending MRR Recon", ["Month", "Direct Stripe", "Direct sheet", "Direct gap",
+                                                 "Reseller Stripe", "Reseller sheet", "Reseller gap", "Total gap"],
+                        recon + [[]] + [[n] for n in RECON_NOTES])
+        ws.column_dimensions["A"].width = 10
     ledger_tab(wb, "CAC Excluded", ["Date", "Payee", "Amount", "Memo", "Card"],
                [[e["time"][:10], e["payee"], e["amount"], e.get("memo") or "", e.get("card") or ""]
                 for e in cac["excluded"]])
