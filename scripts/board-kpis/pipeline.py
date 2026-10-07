@@ -42,8 +42,8 @@ Ending, where New is every deal that joined the block during the month
 without closing has no row to go in, so it is listed under "left" and the
 month's counts no longer tie by that many.
 
-Account Type is the deal's current one (see block()). Deals with Account
-Type "Unqualified" (or none) in the Opportunity or
+Pipeline and Account Type are the deal's current ones (see block()). Deals
+with Account Type "Unqualified" (or none) in the Opportunity or
 Enterprise pipeline belong to no block. They are left out and listed, so they
 can be tagged in HubSpot. Deleted deals are left out entirely: Fivetran does
 not record when a deal was deleted, so its history cannot be placed.
@@ -73,12 +73,20 @@ FLOWS = ("created", "increase", "decrease", "won", "lost")
 
 
 def block(row):
-    """The sheet block a deal row belongs to. Account Type is read as it is
-    today, not as it was at the boundary: deals are often tagged a week or two
-    after they are created, and the sheet has always been built after that
-    (July's six new Direct deals were all still Unqualified on July 31)."""
-    if row["pipeline"] == EXPANSION:
+    """The sheet block a deal row belongs to. Pipeline and Account Type are
+    read as they are today, not as they were at the boundary, which is how
+    HubSpot's historical snapshot report filters. Deals are often tagged a
+    week or two after they are created, and the sheet has always been built
+    after that (July's six new Direct deals were all still Unqualified on July
+    31). A deal moved to another pipeline after month end moves with it: UDS |
+    Boa Safra | DSP, open in Opportunity on September 30 and moved to
+    Expansion on October 5, is Upsell. Stage, amount and open or closed are
+    still as at the boundary."""
+    pipeline = row.get("current_pipeline") or row["pipeline"]
+    if pipeline == EXPANSION:
         return "Upsell"
+    if pipeline not in (OPPORTUNITY, ENTERPRISE):
+        return None
     kind = row.get("current_account_type") or row["account_type"]
     if kind in DIRECT_TYPES:
         return "Direct"
