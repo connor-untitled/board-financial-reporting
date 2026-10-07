@@ -331,8 +331,8 @@ CAC_HISTORY = [
 ]
 CAC_NOTES = [
     "Why they differ. Google bills in $500 steps and settles the rest on the 1st, so a little late-month spend is charged the month after.",
-    "LinkedIn bills ads on the 1st or later; September's $1,084.61 has no Ramp charge as of October 7.",
-    "Meta bills when spend crosses a threshold, so charges trail spend by a few weeks.",
+    "LinkedIn bills ads on the 1st or later, so a charge can land the month after the spend.",
+    "Meta bills when spend crosses a threshold, so charges trail spend by a few weeks (August's card charges ran $229 under spend and September's $343 over).",
 ]
 CAC_LINES = {13: "Google Ads", 15: "LinkedIn Ads", 16: "Meta Ads"}
 
@@ -374,7 +374,6 @@ OPEN_ITEMS = [
     "Pipeline Created vs Increase: deals created in the month are Created; older deals moving up from Qualification are Increase. July backtest: Created, Won, Lost and Ending tie; the sheet's typed July Increase/Decrease do not roll forward to its own Ending, so those two rows differ.",
     "CAC: salaries are July's carried forward (Marketing 8,333.33, CSM 6,666.67, Sales 0). Any change since July needs config.json cac.carry_forward.",
     "CAC: ad lines use platform-reported spend (HubSpot's ad integration), as the sheet always has; Ramp charges are in the CAC Variance tab. Months marked 'platform figure missing' there fall back to Ramp until the figure is supplied.",
-    "CAC: LinkedIn reported $1,084.61 for September but nothing has been charged to the Ramp card as of October 7. Check the payment method in LinkedIn Campaign Manager's billing center.",
     "CAC: LinkedIn subscriptions left out of LinkedIn Ads: $95.39 'LinkedIn subscription' (card 8731), $127.19 on the 7th, and ~$20 on the 1st. See the CAC Variance tab for how Ramp compares to the typed months.",
     "Stockyard Media Haus, LLC (signed Oct 2) has no client_type in Stripe; it will stop October's run until tagged.",
 ]
