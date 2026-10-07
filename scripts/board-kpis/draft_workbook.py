@@ -270,6 +270,32 @@ def fix_formulas(d, month):
                       "Spend through this month; July's formula sums CAC Inputs eight columns ahead (to AT)"])
 
 
+def restate(d):
+    """Refill historical cells listed in config.json `restate` with the
+    formula the row used just before the range, and record each in Board
+    Notes. These are the only cells through July the sheet writer may change."""
+    config = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")))
+    for entry in config.get("restate", []):
+        first, last = column(entry["from"]), column(entry["to"])
+        for row in entry["rows"]:
+            src = d.ws.cell(row, first - 1)
+            for c in range(first, last + 1):
+                cell = d.ws.cell(row, c)
+                published = cell.value
+                cell.value = Translator(src.value, origin=src.coordinate).translate_formula(cell.coordinate)
+                d.sources.append([entry["to"], cell.coordinate, d.ws.cell(row, 1).value, cell.value,
+                                  "Restated: " + entry["what"], "Was %r" % published])
+            d.notes.append(["Row %d %s, %s to %s" % (row, d.ws.cell(row, 1).value.strip(), col_letter(first), col_letter(last)),
+                            "Restatement", entry["what"], "September 2026 report",
+                            0, "=%s%s%d" % (MAIN_REF, col_letter(last), row)])
+
+
+def restated_cells(config):
+    """{(row, column)} that config.json `restate` allows the writer to change."""
+    return {(row, c) for e in config.get("restate", []) for row in e["rows"]
+            for c in range(column(e["from"]), column(e["to"]) + 1)}
+
+
 def board_notes(ws, extra=()):
     """[item, type, what changed, effective, July as published, July under the new method]."""
     al = TEMPLATE_COL
@@ -316,6 +342,12 @@ REPORT_COMMENTARY = {
     "2026-09": {
         157: "One $1,600 UDS deal was reclassified from Reseller to Upsell in early October; it is shown in Upsell for August and September.",
         204: "Includes one $1,600 UDS deal reclassified from Reseller in early October.",
+        185: "Reseller revenue churn is now calculated each month. December 2025 to July 2026 had been entered as 0% "
+             "and are restated (December 8.3%, July 15.2%). Gross churn: August 3.6%, September 1.3%.",
+        186: "Reseller net revenue churn is now calculated each month; December 2025 to July 2026 had been entered "
+             "as 0% and are restated.",
+        187: TTM_COMMENT + " It now also includes the restated December 2025 to July 2026 Reseller churn, which had been 0%.",
+        188: TTM_COMMENT + " It now also includes the restated December 2025 to July 2026 Reseller churn, which had been 0%.",
     },
 }
 REBASE_REASONS = {
@@ -538,6 +570,7 @@ def trim(wb):
 def main():
     wb = openpyxl.load_workbook(w.path(EXPORT))
     d = Draft(wb)
+    restate(d)
     stripe, pipeline, mqls = load("draft.json"), load("pipeline.json"), load("mqls.json")["months"]
     cac = load("cac.json")
     history = churn_rows(wb)

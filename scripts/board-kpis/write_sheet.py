@@ -16,7 +16,8 @@ and the live workbook through the Sheets API, and plans a cell-by-cell write:
 - a Board Notes tab: the draft's Board Notes rows as a section for this
   report (the detailed change log).
 
-July and earlier are never written. A live formula that differs from the
+July and earlier are never written, except the cells config.json `restate`
+lists (a historical row recalculated on purpose, recorded in Board Notes). A live formula that differs from the
 draft (the sheet carries some formulas ahead into future months, such as the
 13-month TTM windows and the roll-forward Beginning rows) is replaced, and
 the plan lists each one with the formula it replaces. A live typed value
@@ -97,6 +98,26 @@ def months_in(draft_wb):
         if any(ws.cell(r, c).value is not None for r in range(6, ws.max_row + 1)):
             cols.append(c)
     return cols
+
+
+def plan_restated(sheet, draft_wb, config):
+    """Writes for the historical cells config.json `restate` allows, and a
+    note on each from the entry."""
+    ws = draft_wb[D.MAIN]
+    writes, notes = [], []
+    for entry in config.get("restate", []):
+        first, last = D.column(entry["from"]), D.column(entry["to"])
+        rows = entry["rows"]
+        live = read(sheet, ["%s!%s%d:%s%d" % (quote(D.MAIN), col_letter(first), min(rows),
+                                               col_letter(last), max(rows))])[0]
+        for row in rows:
+            for c in range(first, last + 1):
+                ref = "%s%d" % (col_letter(c), row)
+                want, have = ws.cell(row, c).value, grid_get(live, row - min(rows), c - first)
+                if have is None or not same(have, want):
+                    writes.append((D.MAIN, ref, want))
+                notes.append((ref, entry["note"]))
+    return writes, notes
 
 
 def draft_commentary(draft_wb, cols):
@@ -264,7 +285,7 @@ def history(sheet, max_row):
     return {t: g for t, g in zip(tabs, got)}
 
 
-def changed_history(before, after):
+def changed_history(before, after, allowed=frozenset()):
     """Cells through July that differ between two history() reads. Appending
     columns to CAC Inputs makes Sheets shift references that point past the
     tab's last column (row 44's published formulas do), so this is checked
@@ -274,7 +295,7 @@ def changed_history(before, after):
         for r in range(max(len(rows), len(after[tab]))):
             for c in range(D.TEMPLATE_COL):
                 a, b = grid_get(rows, r, c), grid_get(after[tab], r, c)
-                if a != b:
+                if a != b and not (tab == D.MAIN and (r + 1, c + 1) in allowed):
                     out.append((tab, "%s%d" % (col_letter(c + 1), r + 1), a, b))
     return out
 
@@ -325,9 +346,16 @@ def write(sheet, cols, writes, churn, notes, board, notes_col):
     existing = read(sheet, ["%s!A1:A" % quote(NOTES_TAB)])[0] if NOTES_TAB in props else []
     report = board[0][0].split(",")[0]
     if not any(r and str(r[0]).startswith(report) for r in existing):
-        start = len(existing) + (2 if existing else 1)
+        add, start = board, len(existing) + (2 if existing else 1)
+    else:
+        # The section is there: add only rows it lacks (e.g. a restatement
+        # decided after the first write), at the end of the tab.
+        have = {str(r[0]) for r in existing if r}
+        add = [r for r in board[1:] if r and r[0] and str(r[0]) not in have]
+        start = len(existing) + 1
+    if add:
         data.append({"range": "%s!A%d" % (quote(NOTES_TAB), start),
-                     "values": [[("" if v is None else v) for v in r] for r in board]})
+                     "values": [[("" if v is None else v) for v in r] for r in add]})
     sheet.call("POST", "/values:batchUpdate", json={"valueInputOption": "USER_ENTERED", "data": data})
 
     main = sheet_ids(sheet)[D.MAIN]["sheetId"]
@@ -384,11 +412,13 @@ def main():
         sys.exit("nothing to write after column %s" % col_letter(D.TEMPLATE_COL))
 
     writes, replaced, conflicts = plan_columns(sheet, draft_wb, cols)
+    restated, restated_notes = plan_restated(sheet, draft_wb, config)
+    writes += restated
     churn = plan_churn(sheet, churn_rows(draft_wb))
     commentary = draft_commentary(draft_wb, cols)
     notes_col = plan_commentary(sheet, cols, commentary, draft_wb[D.MAIN].max_row)
     cleared = [int(ref[len(col_letter(cols[-1] + 1)):]) for ref, v in notes_col[1] if v == ""]
-    notes = cell_notes(commentary, cols, cleared)
+    notes = cell_notes(commentary, cols, cleared) + restated_notes
     names = [dt.date(2023 + (c - 2 + 6) // 12, (c - 2 + 6) % 12 + 1, 1).strftime("%B %Y") for c in cols]
     label = "Report: %s, written %s" % (" to ".join(dict.fromkeys([names[0], names[-1]])), dt.date.today())
     board = board_rows(draft_wb, label, config.get("support_links", {}).get(label.split(",")[0]))
@@ -396,7 +426,7 @@ def main():
 
     with open(w.path(PLAN), "w") as f:
         f.write(markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped, notes_col))
-    print("%d cells (%d replace a live formula), %d Churn Inputs rows, %d cell notes, %d Board Notes rows, "
+    print("%d restated history cells; " % len(restated) + "%d cells (%d replace a live formula), %d Churn Inputs rows, %d cell notes, %d Board Notes rows, "
           "%d conflicts -> %s" % (len(writes), len(replaced), len(rows), len(notes), len(board),
                                    len(conflicts), w.path(PLAN)))
     if conflicts:
@@ -410,7 +440,7 @@ def main():
     before = history(sheet, rows)
     write(sheet, cols, writes, churn, notes, board, notes_col)
     print("written")
-    moved = changed_history(before, history(sheet, rows))
+    moved = changed_history(before, history(sheet, rows), D.restated_cells(config))
     for tab, ref, a, b in moved:
         print("  history changed %s!%s: %r -> %r" % (tab, ref, a, b))
     if moved:

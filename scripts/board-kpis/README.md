@@ -254,6 +254,16 @@ Review the plan, then run it again with `BOARD_KPIS_WRITE=1`. It needs
 - The working-paper tabs go to `.board-kpis/kpi_support.xlsx`, filed in
   Drive beside the sheet; its link goes in config.json `support_links`.
 
+### Restating history
+
+A historical row is recalculated only on purpose: list it in config.json
+`restate` (rows, first and last month, the report, what changed, the cell
+note). draft_workbook.py refills those cells with the formula the row used
+just before the range and adds a Board Notes line; write_sheet.py may then
+change those cells and no others through July. Reseller $ churn rates (rows
+185-186) for December 2025 to July 2026, typed as 0%, were restated in the
+September 2026 report.
+
 ## Reporting conventions
 
 1. Historical values and formulas stay as published, so a change does not
