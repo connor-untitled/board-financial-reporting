@@ -104,7 +104,7 @@ def plan_restated(sheet, draft_wb, config):
     """Writes for the historical cells config.json `restate` allows, and a
     note on each from the entry."""
     ws = draft_wb[D.MAIN]
-    writes, notes = [], []
+    writes, notes, formats = [], [], []
     for entry in config.get("restate", []):
         first, last = D.column(entry["from"]), D.column(entry["to"])
         rows = entry["rows"]
@@ -113,11 +113,14 @@ def plan_restated(sheet, draft_wb, config):
         for row in rows:
             for c in range(first, last + 1):
                 ref = "%s%d" % (col_letter(c), row)
-                want, have = ws.cell(row, c).value, grid_get(live, row - min(rows), c - first)
+                want, have = cell_value(ws.cell(row, c).value), grid_get(live, row - min(rows), c - first)
                 if have is None or not same(have, want):
                     writes.append((D.MAIN, ref, want))
-                notes.append((ref, entry["note"]))
-    return writes, notes
+                    if isinstance(have, str) and not have.startswith("="):
+                        formats.append((row, c))  # typed text: take the date format from the left
+                if entry.get("mode") != "header_date" or have is None or not same(have, want):
+                    notes.append((ref, entry["note"]))
+    return writes, notes, formats
 
 
 def draft_commentary(draft_wb, cols):
@@ -300,9 +303,14 @@ def changed_history(before, after, allowed=frozenset()):
     return out
 
 
-def write(sheet, cols, writes, churn, notes, board, notes_col):
+def write(sheet, cols, writes, churn, notes, board, notes_col, formats=()):
     props = sheet_ids(sheet)
-    requests = []
+    requests = [{"copyPaste": {
+        "source": {"sheetId": props[D.MAIN]["sheetId"], "startRowIndex": r - 1, "endRowIndex": r,
+                   "startColumnIndex": c - 2, "endColumnIndex": c - 1},
+        "destination": {"sheetId": props[D.MAIN]["sheetId"], "startRowIndex": r - 1, "endRowIndex": r,
+                        "startColumnIndex": c - 1, "endColumnIndex": c},
+        "pasteType": "PASTE_FORMAT"}} for r, c in formats]
     found, notes_cells = notes_col
     if found and found <= cols[-1]:
         # Last report's Notes column sits where the new months go: insert the
@@ -412,7 +420,7 @@ def main():
         sys.exit("nothing to write after column %s" % col_letter(D.TEMPLATE_COL))
 
     writes, replaced, conflicts = plan_columns(sheet, draft_wb, cols)
-    restated, restated_notes = plan_restated(sheet, draft_wb, config)
+    restated, restated_notes, restated_formats = plan_restated(sheet, draft_wb, config)
     writes += restated
     churn = plan_churn(sheet, churn_rows(draft_wb))
     commentary = draft_commentary(draft_wb, cols)
@@ -438,7 +446,7 @@ def main():
         return 0
     rows = draft_wb[D.MAIN].max_row
     before = history(sheet, rows)
-    write(sheet, cols, writes, churn, notes, board, notes_col)
+    write(sheet, cols, writes, churn, notes, board, notes_col, restated_formats)
     print("written")
     moved = changed_history(before, history(sheet, rows), D.restated_cells(config))
     for tab, ref, a, b in moved:
