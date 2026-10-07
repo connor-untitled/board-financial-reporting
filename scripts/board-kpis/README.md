@@ -198,6 +198,27 @@ inputs filled, cancellations appended to Churn Inputs, and a Sources tab
 naming where every filled cell came from and which cells still need a
 person (trials, CTAM, reseller end clients, CAC inputs).
 
+From August 2026 the new months also get two corrected formulas:
+
+- TTM rows (62, 64, 65, 70, 71, 113, 121, 123, 124, 129, 130, 170, 179,
+  181, 182, 187, 188, 217, 221) cover 12 months. July's published formulas
+  span 13 (`Z:AL`).
+- Running Cost per Conversion (row 44) sums CAC Inputs through the month
+  itself. July's published formula sums eight months ahead (to `AT`), so it
+  picks up later spend as soon as it is entered.
+
+## Reporting conventions
+
+1. Historical values and formulas stay as published, so a change does not
+   ripple back through the history. Corrections apply from the month they
+   are made. At 2026 year-end, review rebasing any history that was
+   populated incorrectly (the held items are listed under Open items on the
+   Sources tab).
+2. When a month's report is finalized, every calculation change or rebase is
+   annotated for the board notes. The Board Notes tab is that record: each
+   change, the month it takes effect, and July 2026 as published beside July
+   under the new method.
+
 ## Not built yet
 
 - **Writing to the sheet.** This needs the service account in

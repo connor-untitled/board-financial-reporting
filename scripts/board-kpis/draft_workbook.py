@@ -17,8 +17,12 @@ In the copy, for each reported month:
   Metabase question 139 and Ramp (CAC Inputs, from cac.json);
 - cancellations are appended to Churn Inputs, and the churn-age rows are
   worked out from that tab;
+- the TTM rows and Running Cost per Conversion (row 44) get corrected
+  windows; July and earlier keep their formulas as published;
 - a Sources tab lists every filled cell with where it came from, and the
-  cells left for a person, with why.
+  cells left for a person, with why;
+- a Board Notes tab lists every calculation change and rebase, with July as
+  published beside July under the new method.
 
 Usage:
     python3 draft_workbook.py
@@ -27,6 +31,7 @@ Usage:
 import datetime as dt
 import json
 import os
+import re
 import sys
 
 import openpyxl
@@ -204,6 +209,67 @@ def gaps(d, month):
                           "Row 184 nets out Expansion, where Direct row 126 nets out New MRR" if row == 186 else ""])
 
 
+# TTM rows. July's formulas span Z:AL, 13 months; new months use 12.
+TTM_ROWS = (62, 64, 65, 70, 71, 113, 121, 123, 124, 129, 130, 170, 179, 181, 182, 187, 188, 217, 221)
+TTM_FORMULA = re.compile(r"^=(SUM|AVERAGE)\(Z(\d+):AL\2\)$")
+MAIN_REF = "'%s'!" % MAIN
+
+
+def ttm(fn, row, last):
+    """=FN over the 12 columns ending at column number last."""
+    return "=%s(%s%d:%s%d)" % (fn, col_letter(last - 11), row, col_letter(last), row)
+
+
+def running_cost(col, prefix=""):
+    x = col_letter(col)
+    return "=(SUM('CAC Inputs'!$B$18:%s18))/SUM(%s$B$42:%s42)" % (x, prefix, x)
+
+
+def fix_formulas(d, month):
+    """Correct the TTM windows and row 44 for the month; earlier columns stay as published."""
+    c, x = column(month), col_letter(column(month))
+    for row in TTM_ROWS:
+        fn, src = TTM_FORMULA.match(d.ws.cell(row, TEMPLATE_COL).value).groups()
+        d.ws.cell(row, c).value = ttm(fn, int(src), c)
+        d.sources.append([month, "%s%d" % (x, row), d.ws.cell(row, 1).value, d.ws.cell(row, c).value,
+                          "Formula, corrected window", "12 months; July's formula spans 13 (Z:AL)"])
+    d.ws.cell(44, c).value = running_cost(c)
+    d.sources.append([month, "%s44" % x, d.ws.cell(44, 1).value, d.ws.cell(44, c).value,
+                      "Formula, corrected window",
+                      "Spend through this month; July's formula sums CAC Inputs eight columns ahead (to AT)"])
+
+
+def board_notes(ws):
+    """[item, type, what changed, effective, July as published, July under the new method]."""
+    al = TEMPLATE_COL
+    label = lambda row: "Row %d %s" % (row, (ws.cell(row, 1).value or "").strip())
+    rows = []
+    for row in TTM_ROWS:
+        fn, src = TTM_FORMULA.match(ws.cell(row, al).value).groups()
+        rows.append([label(row), "Calculation change",
+                     "TTM window is 12 months; the published formula spans 13 (Z:AL)", "August 2026",
+                     "=%sAL%d" % (MAIN_REF, row), ttm(fn, int(src), al).replace("(", "(" + MAIN_REF, 1)])
+    rows.append([label(44), "Calculation change",
+                 "Ad spend summed through the month itself; the published formula sums CAC Inputs eight months ahead",
+                 "August 2026", "=%sAL44" % MAIN_REF,
+                 running_cost(al, MAIN_REF)])
+    for item, row_july, row_aug in (("Direct Beginning MRR (row 81)", 87, 81), ("Reseller Beginning MRR (row 140)", 145, 140),
+                                    ("Direct Beginning Customers (row 108)", 111, 108),
+                                    ("Reseller Beginning Customers (row 165)", 168, 165)):
+        rows.append([item, "Rebase", "August starts from the Stripe roster at July month end, not the sheet's July ending; the gap is booked once",
+                     "August 2026", "=%sAL%d" % (MAIN_REF, row_july), "=%sAM%d" % (MAIN_REF, row_aug)])
+    rows.append([label(185), "Calculation change", "Was typed 0% from January 2026; now (Contraction + Cancellation) / Ending MRR, as Direct row 127",
+                 "August 2026", "=%sAL185" % MAIN_REF, "=(%sAL143+%sAL144)/%sAL145" % ((MAIN_REF,) * 3)])
+    rows.append([label(186), "Calculation change", "Was typed 0% from January 2026; now Net Monthly Churn / Ending MRR, as Direct row 128",
+                 "August 2026", "=%sAL186" % MAIN_REF, "=%sAL184/%sAL145" % ((MAIN_REF,) * 2)])
+    rows.append([label(51), "Calculation change", "Was typed; now New Direct + New Reseller customers (rows 109 + 166)",
+                 "August 2026", "=%sAL51" % MAIN_REF, "=%sAL109+%sAL166" % ((MAIN_REF,) * 2)])
+    rows.append(["CAC Inputs, ad lines (rows 13, 15, 16)", "Source change",
+                 "Platform-reported spend (HubSpot ad integration), as before; Ramp card charges now kept beside it as the reconciliation (CAC Variance tab)",
+                 "August 2026", None, None])
+    return rows
+
+
 CAC = "CAC Inputs"
 CAC_SOURCES = {
     13: "Ramp, Google Ads charges; a charge on the 1st counts in the month before",
@@ -295,7 +361,11 @@ OPEN_ITEMS = [
     "July New Customers (AL51) is typed as 8; AL109 + AL166 = 9. Aug/Sep use the formula.",
     "Customer counts rebase to Stripe in August, like MRR: Direct starts at 55 (sheet had 56) and Reseller at 34 (sheet had 33).",
     "Reseller $ churn rates (rows 185-186) now use the Direct block's formulas from August 2026; earlier months are still typed 0%, so the TTM averages (rows 187-188) understate until a year of real values builds up.",
-    "Reseller Net Monthly Churn (row 184) subtracts Expansion, while Direct (row 126) subtracts New MRR. Left as the sheet has it.",
+    "Held for 2026 year-end review: Direct Net Monthly Churn (row 126) subtracts New MRR, where Reseller (row 184) subtracts Expansion, the standard definition. Summary row 67 mixes the two.",
+    "Held for 2026 year-end review: churn and growth rates (rows 61, 68, 112, 120, 127, 128, 169, 178, 185, 186) divide by the ending value, not the beginning one; this feeds LTV:CAC (row 219).",
+    "Held for 2026 year-end review: values typed where formulas belong: services revenue 9600 inside rows 13/14, typed numerators in rows 73/132/190, typed rows 94/151 (AA to AC) and ending pipeline rows 100/157/204.",
+    "Held for 2026 year-end review: Reactivation (row 9) is Direct only, and Avg MRR per New Customer (row 57) divides by a count that includes reactivations.",
+    "Held for 2026 year-end review: TTM rows before August 2026 span 13 months and row 44 before August reads CAC Inputs ahead; history is left as published (see Board Notes).",
     "July MQLs: sheet has 23, Metabase question 139 gives 32 today (23 is the Organic Search count alone).",
     "MQL to customer: July backtests to 2 (My Marketing Department, CLINQ ZERO) against the sheet's 1.",
     "Qualification-pipeline deals fell from about 75 a month to 15 (Aug) and 14 (Sep), and MQLs fell to 13 in August. Worth confirming the inbound deal workflow did not change.",
@@ -343,6 +413,7 @@ def main():
     for m in stripe["months"]:
         month = m["month"]
         d.extend_formulas(month)
+        fix_formulas(d, month)
         fill_stripe(d, m, stripe, history)
         if month in pipe:
             fill_pipeline(d, pipe[month])
@@ -352,6 +423,10 @@ def main():
             fill_cac(d, month, cac)
         gaps(d, month)
 
+    ws = ledger_tab(wb, "Board Notes", ["Item", "Type", "What changed", "Effective",
+                                        "July 2026 as published", "July 2026 under the new method"], board_notes(d.ws))
+    for col, width in (("A", 48), ("B", 18), ("C", 90), ("D", 14), ("E", 22), ("F", 28)):
+        ws.column_dimensions[col].width = width
     ws = ledger_tab(wb, "Sources", ["Month", "Cell", "Metric", "Value", "Source", "Detail"], d.sources)
     ws.append([])
     ws.append(["Open items"])
