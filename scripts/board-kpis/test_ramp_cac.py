@@ -50,6 +50,17 @@ def _():
     assert out["2026-07"][16]["value"] == 900 and out["2026-07"][20]["value"] == 2000, out
 
 
+@case("platform spend replaces Ramp on the ad rows when given, Ramp stays as the gap")
+def _():
+    out, _ = C.run([charge("Google Ads", "2026-09-15", 500), charge("Google Ads", "2026-10-01", 339.62),
+                    charge("Facebook Ads", "2026-09-09", 900)], ["2026-09"])
+    C.apply_platform(out, {"2026-09": {"Google Ads": 866.54, "LinkedIn": 1084.61}})
+    g, li, fb = out["2026-09"][13], out["2026-09"][15], out["2026-09"][16]
+    assert (g["value"], g["ramp"], g["gap"], g["source"]) == (866.54, 839.62, -26.92, "platform"), g
+    assert (li["value"], li["gap"]) == (1084.61, -1084.61), li
+    assert (fb["value"], fb["source"]) == (900, "ramp fallback"), fb
+
+
 def main():
     failed = 0
     for name, fn in CASES:

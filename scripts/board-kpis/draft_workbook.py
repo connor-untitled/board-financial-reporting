@@ -199,7 +199,7 @@ CAC_SOURCES = {
     14: "Ramp, Reddit charges (none since March)",
     15: "Ramp, LinkedIn ad charges; a charge on the 1st counts in the month before; subscriptions left out",
     16: "Ramp, Facebook Ads charges as they fall (billed on a spend threshold, so they trail spend)",
-    20: "Ramp, DirectB2BLeads (GL 7013)",
+    20: "Ramp, DirectB2BLeads (GL 7013); engagement ended in July",
 }
 
 
@@ -226,30 +226,50 @@ def fill_cac(d, month, cac):
     for row, value in cac["carry_forward"].items():
         put(int(row), value, "Carried forward from July (payroll is not in Ramp)", "Edit config.json cac.carry_forward when pay or headcount changes")
     d.sources.append([month, "'%s'!%s6" % (CAC, col_letter(c)), "Sales Commissions", "left blank",
-                      "Blank every month since January 2024, as the sheet has it; not in Ramp", ""])
+                      "Excluded from CAC, as confirmed (blank since January 2024)", ""])
     for row, cell in cac["months"][month].items():
-        put(int(row), cell["value"], CAC_SOURCES[int(row)], ", ".join(cell["charges"]))
+        if cell.get("source") == "platform":
+            put(int(row), cell["value"], "HubSpot ad integration (platform-reported spend)",
+                "Ramp charged %s (gap %s): %s" % (cell["ramp"], cell["gap"], ", ".join(cell["charges"]) or "no charges"))
+        elif cell.get("source") == "ramp fallback":
+            put(int(row), cell["value"], "Ramp fallback, platform figure missing: " + CAC_SOURCES[int(row)],
+                ", ".join(cell["charges"]))
+        else:
+            put(int(row), cell["value"], CAC_SOURCES[int(row)], ", ".join(cell["charges"]))
     for row, label in cac["zero_rows"].items():
         put(int(row), 0, "Nothing in Ramp for %s" % label, "")
 
 
-# Ramp (with the 1st-of-month rule) against the sheet's typed values.
-CAC_VARIANCE = [
-    ["Month", "Line", "Ramp", "Sheet", "Ramp minus sheet"],
-    ["2026-05", "Google Ads", 5017.64, 4941.62, 76.02],
-    ["2026-06", "Google Ads", 4570.51, 4599.55, -29.04],
-    ["2026-07", "Google Ads", 3209.49, 3224.18, -14.69],
-    ["2026-05", "LinkedIn Ads", 425.13, 427.99, -2.86],
-    ["2026-06", "LinkedIn Ads", 98.66, 98.66, 0],
-    ["2026-07", "LinkedIn Ads", 0, 0, 0],
-    ["2026-05", "Meta Ads", 0, 0, 0],
-    ["2026-06", "Meta Ads", 701.63, 1001.60, -299.97],
-    ["2026-07", "Meta Ads", 1006.03, 965.50, 40.53],
-    ["2026-03 to 07", "Outbound Contractor", 10000, 10000, 0],
-    [],
-    ["April is left out: its April 3 Google charge ($1,600.72) includes March spend, so April reads $1,050 over."],
-    ["Meta bills when spend crosses a threshold, so its charges trail spend; June and July together read $259 (13%) under."],
+# Platform-reported spend (the sheet's basis) against Ramp charges. May to
+# July compare Ramp with the typed sheet; later months come from cac.json.
+CAC_HISTORY = [
+    ["2026-05", "Google Ads", 4941.62, 5017.64],
+    ["2026-06", "Google Ads", 4599.55, 4570.51],
+    ["2026-07", "Google Ads", 3224.18, 3209.49],
+    ["2026-05", "LinkedIn Ads", 427.99, 425.13],
+    ["2026-06", "LinkedIn Ads", 98.66, 98.66],
+    ["2026-07", "LinkedIn Ads", 0, 0],
+    ["2026-06", "Meta Ads", 1001.60, 701.63],
+    ["2026-07", "Meta Ads", 965.50, 1006.03],
 ]
+CAC_NOTES = [
+    "Why they differ. Google bills in $500 steps and settles the rest on the 1st, so a little late-month spend is charged the month after.",
+    "LinkedIn bills ads on the 1st or later; September's $1,084.61 has no Ramp charge as of October 7.",
+    "Meta bills when spend crosses a threshold, so charges trail spend by a few weeks.",
+]
+CAC_LINES = {13: "Google Ads", 15: "LinkedIn Ads", 16: "Meta Ads"}
+
+
+def cac_variance_rows(cac):
+    rows = [[m, line, plat, ramp, round(ramp - plat, 2), "typed sheet"] for m, line, plat, ramp in CAC_HISTORY]
+    for month, cells in cac["months"].items():
+        for row, line in CAC_LINES.items():
+            cell = cells[str(row)] if str(row) in cells else cells[row]
+            if cell.get("source") == "platform":
+                rows.append([month, line, cell["platform"], cell["ramp"], cell["gap"], "HubSpot ad integration"])
+            else:
+                rows.append([month, line, None, cell.get("ramp", cell["value"]), None, "platform figure missing"])
+    return rows + [[]] + [[n] for n in CAC_NOTES]
 
 
 OPEN_ITEMS = [
@@ -263,10 +283,9 @@ OPEN_ITEMS = [
     "Deals with Account Type Unqualified are left out of pipeline totals; see Pipeline Ledger, 'left out'.",
     "Pipeline: on 2026-07-27 about 1,500 legacy deals were bulk-moved into Opportunity Closed Won/Lost. They are excluded.",
     "Pipeline Created vs Increase: deals created in the month are Created; older deals moving up from Qualification are Increase. July backtest: Created, Won, Lost and Ending tie; the sheet's typed July Increase/Decrease do not roll forward to its own Ending, so those two rows differ.",
-    "CAC: Sales Commissions (CAC Inputs row 6) have been blank since January 2024, so CAC has excluded commissions all year. Left blank to match; say if they should come back in.",
     "CAC: salaries are July's carried forward (Marketing 8,333.33, CSM 6,666.67, Sales 0). Any change since July needs config.json cac.carry_forward.",
-    "CAC: DirectB2BLeads (outbound contractor) has no charges in Aug or Sep, so the line is $0. They also churned as a customer in August. Confirm the engagement ended.",
-    "CAC: a $500 Prospect Desk charge coded to 7010 Advertising in August is left out (Prospect Desk is the DSP partner). Confirm it is not marketing.",
+    "CAC: ad lines use platform-reported spend (HubSpot's ad integration), as the sheet always has; Ramp charges are in the CAC Variance tab. Months marked 'platform figure missing' there fall back to Ramp until the figure is supplied.",
+    "CAC: LinkedIn reported $1,084.61 for September but nothing has been charged to the Ramp card as of October 7. Check the payment method in LinkedIn Campaign Manager's billing center.",
     "CAC: LinkedIn subscriptions left out of LinkedIn Ads: $95.39 'LinkedIn subscription' (card 8731), $127.19 on the 7th, and ~$20 on the 1st. See the CAC Variance tab for how Ramp compares to the typed months.",
     "Stockyard Media Haus, LLC (signed Oct 2) has no client_type in Stripe; it will stop October's run until tagged.",
 ]
@@ -332,7 +351,8 @@ def main():
                 for p in pipeline for r in p["ledger"]]
                + [[p["month"], "none", "left out", u["deal"].strip(), str(u["deal_id"]), None,
                    "Account Type Unqualified or blank: tag in HubSpot"] for p in pipeline for u in p["untagged"]])
-    ws = ledger_tab(wb, "CAC Variance", CAC_VARIANCE[0], CAC_VARIANCE[1:])
+    ws = ledger_tab(wb, "CAC Variance", ["Month", "Line", "Platform-reported", "Ramp charged",
+                                         "Ramp minus platform", "Platform source"], cac_variance_rows(cac))
     ws.column_dimensions["A"].width = 14
     ws.column_dimensions["B"].width = 22
     ledger_tab(wb, "CAC Excluded", ["Date", "Payee", "Amount", "Memo", "Card"],

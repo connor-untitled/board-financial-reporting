@@ -20,12 +20,20 @@ The rules, each checked against the typed sheet for May to July 2026:
   few weeks. Charges are used as they fall (June read $300 under the sheet,
   July $41 over).
 
+Ramp is the reconciliation for the ad lines, not their source. The sheet
+has always carried platform-reported spend (Google's own May figure ties to
+the cent), and card charges trail it: Google settles late-month spend in the
+next month, and LinkedIn can bill well after the spend. So Google, LinkedIn
+and Meta take the platform figure from `.board-kpis/ad_spend.json` (HubSpot's
+ad integration), and Ramp's charges are kept beside it with the gap. A month
+with no platform figure falls back to Ramp and says so.
+
 Salaries carry forward from config.json `cac.carry_forward`, because payroll
 is not in Ramp. Sales commissions stay blank, as the sheet has had them
 since January 2024.
 
 Usage:
-    python3 ramp_cac.py      # .board-kpis/ramp_spend.json -> cac.json
+    python3 ramp_cac.py      # ramp_spend.json + ad_spend.json -> cac.json
 """
 
 import json
@@ -37,12 +45,14 @@ from mrr import months_between, shift
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SPEND = "ramp_spend.json"
+PLATFORM = "ad_spend.json"  # {"YYYY-MM": {"Google Ads": x, "LinkedIn": y, "Facebook Ads": z}}
 OUT = "cac.json"
 
 # CAC Inputs rows filled from Ramp, by payee.
 RAMP_ROWS = {"Google Ads": 13, "Reddit": 14, "LinkedIn": 15, "Facebook Ads": 16, "DirectB2BLeads": 20}
 ZERO_ROWS = {17: "Beeswax/DSP", 19: "PR Contractor", 21: "Marketing Contractor"}
 BILLED_ON_FIRST = {"Google Ads", "LinkedIn"}
+PLATFORM_PAYEES = ("Google Ads", "LinkedIn", "Facebook Ads")
 
 
 def linkedin_subscription(charge):
@@ -80,6 +90,23 @@ def run(charges, months):
     return out, excluded
 
 
+def apply_platform(values, platform):
+    """Swap Ramp for platform-reported spend on the ad rows, keeping both."""
+    for month, rows in values.items():
+        reported = platform.get(month, {})
+        for payee in PLATFORM_PAYEES:
+            cell = rows[RAMP_ROWS[payee]]
+            cell["ramp"] = cell["value"]
+            if payee in reported:
+                cell["value"] = round(float(reported[payee]), 2)
+                cell["platform"] = cell["value"]
+                cell["gap"] = round(cell["ramp"] - cell["value"], 2)
+                cell["source"] = "platform"
+            else:
+                cell["source"] = "ramp fallback"
+    return values
+
+
 def main():
     config = json.load(open(os.path.join(HERE, "config.json")))
     with open(w.path(SPEND)) as f:
@@ -87,6 +114,11 @@ def main():
     last = shift(max(c["time"][:7] for c in charges), -1)
     months = months_between(config["cac"].get("first_month", config["first_month"]), last)
     values, excluded = run(charges, months)
+    platform = {}
+    if os.path.exists(w.path(PLATFORM)):
+        with open(w.path(PLATFORM)) as f:
+            platform = json.load(f)
+    apply_platform(values, platform)
     result = {"months": values,
               "carry_forward": config["cac"]["carry_forward"],
               "zero_rows": ZERO_ROWS,

@@ -165,20 +165,26 @@ Ramp's `spend` reporting dataset gives every charge for the payees in
 next month, to `.board-kpis/ramp_spend.json` (payee, time, amount, memo,
 card, gl) and run `python3 scripts/board-kpis/ramp_cac.py`.
 
-- Google Ads, LinkedIn and Meta are what was charged, not what each platform
-  reports. A charge on the 1st counts in the month before: Google settles
-  the month's remainder then, and LinkedIn bills its ads then. Backtested on
-  May to July 2026, Google lands within $76, $29 and $15 of the typed sheet
-  and LinkedIn within $3. Meta bills on a spend threshold, so it trails
-  spend: June read $300 under, July $41 over.
+- Google Ads, LinkedIn and Meta use platform-reported spend, which is what
+  the sheet has always carried (Google's own May figure ties to the cent).
+  Put HubSpot's ad-integration figures in `.board-kpis/ad_spend.json` as
+  `{"YYYY-MM": {"Google Ads": x, "LinkedIn": y, "Facebook Ads": z}}`. Ramp
+  charges are kept beside them in the CAC Variance tab, and a month with no
+  platform figure falls back to Ramp and says so. Automating this needs the
+  Google Ads Fivetran sync (`google_ads_ft` in Metabase, stopped 2026-07-02)
+  restarted and LinkedIn and Meta connectors added.
+- Card charges trail platform spend. Google bills in $500 steps and settles
+  the rest on the 1st; LinkedIn bills on the 1st or later; Meta bills on a
+  spend threshold. For the reconciliation a Google or LinkedIn charge on the
+  1st counts in the month before.
 - LinkedIn subscriptions ($95.39 "LinkedIn subscription", $127.19 on the 7th,
   ~$20 on the 1st) are left out of LinkedIn Ads and listed.
-- The outbound contractor is DirectB2BLeads. Reddit, DSP, PR and marketing
+- The outbound contractor is DirectB2BLeads (ended July 2026). Reddit, DSP, PR and marketing
   contractors have no Ramp charges.
 - Salaries are not in Ramp, and QuickBooks has no ledger published to Ramp,
   so they carry forward from `cac.carry_forward`. Edit it when pay or
-  headcount changes. Sales commissions have been blank since January 2024
-  and stay blank.
+  headcount changes. Sales commissions are excluded from CAC, by decision.
+  Prospect Desk charges are DSP pass-through and are excluded.
 
 ## The review workbook
 
