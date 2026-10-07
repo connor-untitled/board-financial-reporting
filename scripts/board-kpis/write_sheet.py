@@ -192,8 +192,49 @@ def markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped):
 
 
 def sheet_ids(sheet):
-    meta = sheet.call("GET", "", params={"fields": "sheets.properties(sheetId,title,gridProperties)"})
-    return {s["properties"]["title"]: s["properties"] for s in meta["sheets"]}
+    meta = sheet.call("GET", "", params={"fields": "sheets(properties(sheetId,title,gridProperties),merges)"})
+    return {s["properties"]["title"]: dict(s["properties"], merges=s.get("merges", [])) for s in meta["sheets"]}
+
+
+def unmerged_spans(merges, rows, first_col, last_col):
+    """0-based [start, end) row spans under `rows` with no merge touching the
+    columns first_col..last_col (0-based): the section header bands are merged
+    across the months, and a format paste cannot cut through a merge."""
+    blocked = set()
+    for m in merges:
+        if m["startColumnIndex"] <= last_col and m["endColumnIndex"] > first_col - 1:
+            blocked.update(range(m["startRowIndex"], m["endRowIndex"]))
+    spans, start = [], None
+    for r in range(rows + 1):
+        if r < rows and r not in blocked:
+            start = r if start is None else start
+        elif start is not None:
+            spans.append((start, r))
+            start = None
+    return spans
+
+
+def history(sheet, max_row):
+    """The main tab and CAC Inputs through July, as formulas."""
+    last = col_letter(D.TEMPLATE_COL)
+    tabs = (D.MAIN, D.CAC)
+    got = read(sheet, ["%s!A1:%s%d" % (quote(t), last, max_row) for t in tabs])
+    return {t: g for t, g in zip(tabs, got)}
+
+
+def changed_history(before, after):
+    """Cells through July that differ between two history() reads. Appending
+    columns to CAC Inputs makes Sheets shift references that point past the
+    tab's last column (row 44's published formulas do), so this is checked
+    after every write rather than assumed."""
+    out = []
+    for tab, rows in before.items():
+        for r in range(max(len(rows), len(after[tab]))):
+            for c in range(D.TEMPLATE_COL):
+                a, b = grid_get(rows, r, c), grid_get(after[tab], r, c)
+                if a != b:
+                    out.append((tab, "%s%d" % (col_letter(c + 1), r + 1), a, b))
+    return out
 
 
 def write(sheet, cols, writes, churn, notes, board):
@@ -207,11 +248,11 @@ def write(sheet, cols, writes, churn, notes, board):
             requests.append({"appendDimension": {"sheetId": p["sheetId"], "dimension": "COLUMNS", "length": short}})
         rows = max(int(ref.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZ")) for t, ref, v in writes if t == tab) if any(
             t == tab for t, _, _ in writes) else 0
-        if rows:
+        for start, end in unmerged_spans(p["merges"], rows, D.TEMPLATE_COL - 1, cols[-1] - 1):
             requests.append({"copyPaste": {
-                "source": {"sheetId": p["sheetId"], "startRowIndex": 0, "endRowIndex": rows,
+                "source": {"sheetId": p["sheetId"], "startRowIndex": start, "endRowIndex": end,
                            "startColumnIndex": D.TEMPLATE_COL - 1, "endColumnIndex": D.TEMPLATE_COL},
-                "destination": {"sheetId": p["sheetId"], "startRowIndex": 0, "endRowIndex": rows,
+                "destination": {"sheetId": p["sheetId"], "startRowIndex": start, "endRowIndex": end,
                                 "startColumnIndex": cols[0] - 1, "endColumnIndex": cols[-1]},
                 "pasteType": "PASTE_FORMAT"}})
     last, rows, _ = churn
@@ -311,9 +352,16 @@ def main():
     if os.environ.get("BOARD_KPIS_WRITE") != "1":
         print("dry run: set BOARD_KPIS_WRITE=1 to write")
         return 0
+    rows = draft_wb[D.MAIN].max_row
+    before = history(sheet, rows)
     write(sheet, cols, writes, churn, notes, board)
     print("written")
-    return 1 if verify(sheet, cols, draft_wb[D.MAIN].max_row) else 0
+    moved = changed_history(before, history(sheet, rows))
+    for tab, ref, a, b in moved:
+        print("  history changed %s!%s: %r -> %r" % (tab, ref, a, b))
+    if moved:
+        print("%d cells through July changed as a side effect: restore them by hand or approve a restore" % len(moved))
+    return 1 if verify(sheet, cols, rows) or moved else 0
 
 
 if __name__ == "__main__":
