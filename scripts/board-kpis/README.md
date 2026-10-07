@@ -23,6 +23,7 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 | `test_mrr.py` | One case per rule, each named after the account that showed it |
 | `sql/deal_snapshots.sql` | Month-boundary snapshots of HubSpot deals, run in Metabase |
 | `pipeline.py` | Pipeline roll-forward per block (Direct, Reseller, Upsell) from those snapshots |
+| `test_pipeline.py` | The roll-forward rules, one case each |
 | `ramp_cac.py` | CAC Inputs paid-media and contractor lines from Ramp charges |
 | `test_ramp_cac.py` | The CAC rules, one case each |
 | `draft_workbook.py` | A review copy of the workbook with the reported months filled, plus Sources and ledger tabs |
@@ -31,6 +32,8 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 python3 scripts/board-kpis/stripe_pull.py   # -> .board-kpis/*.json
 python3 scripts/board-kpis/mrr.py           # -> .board-kpis/draft.json, ledger.md
 python3 scripts/board-kpis/test_mrr.py      # no network, no credentials
+python3 scripts/board-kpis/test_pipeline.py
+python3 scripts/board-kpis/test_ramp_cac.py
 ```
 
 Both commands are argument-free, because an allow rule can only name a
@@ -145,6 +148,14 @@ save the rows as a JSON list to `.board-kpis/deal_snapshots.json`, then
   Qualification are an Increase.
 - Ending is the open deals at month end, and the flows tie to it by
   construction.
+- Opportunity counts tie the same way: New Opportunities is every deal that
+  joined the block (created, moved up from Qualification, or re-tagged in).
+  A deal that leaves without closing is flagged on the Sources tab, since
+  the sheet has no row for it.
+- August 2026 rebases Beginning Opportunities to the open deals at July
+  month end (Direct 16, Reseller 18, Upsell 8; the sheet's formulas carried
+  21, 29 and 17). Beginning Pipeline Value is rebased only if the typed July
+  Ending differs from the snapshot; in July all three tie.
 - The 2026-07-27 bulk move of about 1,500 legacy deals into Opportunity
   Closed Won/Lost is excluded in the SQL.
 

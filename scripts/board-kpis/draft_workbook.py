@@ -65,6 +65,7 @@ class Draft:
         self.wb = wb
         self.ws = wb[MAIN]
         self.sources = []
+        self.notes = []  # extra Board Notes rows
 
     def put(self, month, row, value, source, detail=""):
         c = column(month)
@@ -104,12 +105,16 @@ def append_churn(wb, rows):
     last = max(i for i, r in enumerate(ws.iter_rows(values_only=True), 1) if r[0])
     added = []
     for i, r in enumerate(rows, last + 1):
-        start = dt.datetime.strptime(r["start"], "%Y-%m-%d")
-        end = dt.datetime.strptime(r["end"], "%Y-%m-%d")
-        for c, v in enumerate([r["client"], r["customer_type"], r["mrr"], start, end, "=E%d-D%d" % (i, i)], 1):
+        # Stripe may have no paid start or no end (e.g. MRR fell to 0 on a
+        # live subscription): leave the date blank for a person to fill.
+        start = dt.datetime.strptime(r["start"], "%Y-%m-%d") if r["start"] else None
+        end = dt.datetime.strptime(r["end"], "%Y-%m-%d") if r["end"] else None
+        days = "=E%d-D%d" % (i, i) if start and end else None
+        for c, v in enumerate([r["client"], r["customer_type"], r["mrr"], start, end, days], 1):
             ws.cell(i, c).value = v
             ws.cell(i, c).number_format = ws.cell(last, c).number_format
-        added.append((r["customer_type"], (end - start).days, end, r["mrr"]))
+        if start and end:
+            added.append((r["customer_type"], (end - start).days, end, r["mrr"]))
     return added
 
 
@@ -148,6 +153,10 @@ def fill_stripe(d, m, mrr, history):
 
     # Churn age, from Churn Inputs as it stands after this month's rows.
     history += append_churn(d.wb, m["churn_rows"])
+    for r in m["churn_rows"]:
+        if r["days"] is None:
+            d.gap(month, 75, "%s: Stripe has no %s date; fill it on Churn Inputs, then days to churn"
+                  % (r["client"], "start" if not r["start"] else "end"))
     letter = col_letter(column(month))
     short = [r for r in m["churn_rows"] if r["days"] is not None and r["days"] < SHORT_CHURN_DAYS]
     for ch, pct_row, usd_row, denom in (("Direct", 132, 133, 111), ("Reseller", 190, 191, 168)):
@@ -170,8 +179,26 @@ def fill_pipeline(d, p):
     month = p["month"]
     src = "HubSpot deal history via Metabase (scripts/board-kpis/pipeline.py)"
     layout = {"Direct": 95, "Reseller": 152, "Upsell": 199}
+    col = column(month)
     for blk, base in layout.items():
         b, c = p["blocks"][blk], p["counts"][blk]
+        if col == TEMPLATE_COL + 1:
+            # First drafted month: start from the snapshot, like the MRR rebase.
+            typed = d.ws.cell(base + 5, TEMPLATE_COL).value
+            if isinstance(typed, (int, float)) and abs(typed - b["beginning"]) >= 0.005:
+                d.put(month, base - 1, b["beginning"], src + ", open deals at July month end (rebase)",
+                      "Replaces =AL%d. The sheet's July ending was off by %s" % (base + 5, b["beginning"] - typed))
+                d.notes.append(["%s Beginning Pipeline Value (row %d)" % (blk, base - 1), "Rebase",
+                                "August starts from the HubSpot snapshot at July month end, not the sheet's July ending",
+                                "August 2026", "=%sAL%d" % (MAIN_REF, base + 5), "=%sAM%d" % (MAIN_REF, base - 1)])
+            d.put(month, base + 6, c["beginning"], src + ", open deals at July month end (rebase)",
+                  "Replaces =AL%d, which rolls forward a count the snapshots do not support" % (base + 10))
+            d.notes.append(["%s Beginning Opportunities (row %d)" % (blk, base + 6), "Rebase",
+                            "August starts from the count of open deals in HubSpot at July month end, not the sheet's July ending",
+                            "August 2026", "=%sAL%d" % (MAIN_REF, base + 10), "=%sAM%d" % (MAIN_REF, base + 6)])
+        if c["left"]:
+            d.gap(month, base + 10, "%d %s deal(s) left the block without closing (see Pipeline Ledger); "
+                  "HubSpot shows %d open, the formula will read %d more" % (c["left"], blk, c["ending"], c["left"]))
         names = lambda flow: ", ".join("%s %s" % (x["deal"].strip(), x["amount"]) for x in p["ledger"]
                                        if x["block"] == blk and x["flow"] == flow)
         d.put(month, base, b["created"], src, names("created"))
@@ -180,7 +207,8 @@ def fill_pipeline(d, p):
         d.put(month, base + 3, b["won"], src, names("won"))
         d.put(month, base + 4, b["lost"], src, names("lost"))
         d.put(month, base + 5, b["ending"], src + ", open deals at month end", "")
-        d.put(month, base + 7, c["new"], src, "Deals created in the month")
+        d.put(month, base + 7, c["new"], src,
+              "Deals that joined the block in the month: created, moved up from Qualification, or re-tagged in")
         d.put(month, base + 8, c["won"], src, "")
         d.put(month, base + 9, c["lost"], src, "")
 
@@ -239,7 +267,7 @@ def fix_formulas(d, month):
                       "Spend through this month; July's formula sums CAC Inputs eight columns ahead (to AT)"])
 
 
-def board_notes(ws):
+def board_notes(ws, extra=()):
     """[item, type, what changed, effective, July as published, July under the new method]."""
     al = TEMPLATE_COL
     label = lambda row: "Row %d %s" % (row, (ws.cell(row, 1).value or "").strip())
@@ -266,6 +294,10 @@ def board_notes(ws):
                  "August 2026", "=%sAL51" % MAIN_REF, "=%sAL109+%sAL166" % ((MAIN_REF,) * 2)])
     rows.append(["CAC Inputs, ad lines (rows 13, 15, 16)", "Source change",
                  "Platform-reported spend (HubSpot ad integration), as before; Ramp card charges now kept beside it as the reconciliation (CAC Variance tab)",
+                 "August 2026", None, None])
+    rows += extra
+    rows.append(["New Opportunities (rows 102, 159, 206)", "Calculation change",
+                 "New Opportunities counts every deal that joined the block, including older deals moved up from Qualification, so the counts roll forward to HubSpot's open deals",
                  "August 2026", None, None])
     return rows
 
@@ -420,10 +452,12 @@ def main():
             fill_mqls(d, month, mqls[month])
         if month in cac["months"]:
             fill_cac(d, month, cac)
+        else:
+            d.gap(month, 216, "CAC Inputs not filled: ramp_spend.json has no charges dated after this month, so ramp_cac.py did not report it")
         gaps(d, month)
 
     ws = ledger_tab(wb, "Board Notes", ["Item", "Type", "What changed", "Effective",
-                                        "July 2026 as published", "July 2026 under the new method"], board_notes(d.ws))
+                                        "July 2026 as published", "July 2026 under the new method"], board_notes(d.ws, d.notes))
     for col, width in (("A", 48), ("B", 18), ("C", 90), ("D", 14), ("E", 22), ("F", 28)):
         ws.column_dimensions[col].width = width
     ws = ledger_tab(wb, "Sources", ["Month", "Cell", "Metric", "Value", "Source", "Detail"], d.sources)

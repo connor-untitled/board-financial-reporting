@@ -15,7 +15,8 @@ The rules, each checked against the typed sheet for May to July 2026:
   June and July, and LinkedIn ads match exactly.
 - LinkedIn also carries subscriptions that are not paid media: the $95.39
   "LinkedIn subscription", a fixed $127.19 seat billed on the 7th, and a ~$20
-  charge on the 1st. They are left out and listed.
+  charge on the 1st (a credit is never a subscription). They are left out
+  and listed.
 - Meta bills when spend crosses a threshold, so its charges trail spend by a
   few weeks. Charges are used as they fall (June read $300 under the sheet,
   July $41 over).
@@ -61,7 +62,7 @@ def linkedin_subscription(charge):
     day = int(charge["time"][8:10])
     return ("subscription" in memo or abs(amount - 95.39) < 0.005
             or (abs(amount - 127.19) < 0.005 and day == 7)
-            or (day == 1 and amount <= 20.0))
+            or (day == 1 and 0 < amount <= 20.0))
 
 
 def month_of(charge):

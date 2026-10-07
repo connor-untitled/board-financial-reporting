@@ -20,7 +20,7 @@ For each month and block, every deal lands in exactly one place:
 
 - open at both ends: the change in its amount is an Increase or Decrease;
 - open at the start and closed during the month: Won or Lost at its amount
-  when it closed, and any change in amount before closing is an Increase or
+  at month end, and any change in amount during the month is an Increase or
   Decrease;
 - created during the month: Created at its amount at the end of the month
   (then Won or Lost if it closed);
@@ -34,7 +34,13 @@ For each month and block, every deal lands in exactly one place:
 So Beginning + Created + Increase - Decrease - Won - Lost = Ending, where
 Beginning and Ending are the snapshots. The sheet's Beginning is the prior
 month's typed Ending, so the first month reports the gap once, like the MRR
-rebase.
+rebase (draft_workbook.py writes the snapshot Beginning when they differ).
+
+Opportunity counts roll forward the same way: Beginning + New - Won - Lost =
+Ending, where New is every deal that joined the block during the month
+(created, moved up from Qualification, or re-tagged in). A deal that leaves
+without closing has no row to go in, so it is listed under "left" and the
+month's counts no longer tie by that many.
 
 Account Type is the deal's current one (see block()). Deals with Account
 Type "Unqualified" (or none) in the Opportunity or
@@ -73,7 +79,7 @@ def block(row):
     (July's six new Direct deals were all still Unqualified on July 31)."""
     if row["pipeline"] == EXPANSION:
         return "Upsell"
-    kind = row.get("current_account_type", row["account_type"])
+    kind = row.get("current_account_type") or row["account_type"]
     if kind in DIRECT_TYPES:
         return "Direct"
     if kind in RESELLER_TYPES:
@@ -106,7 +112,7 @@ def run(snapshots, first, last):
                            if not block(r) and (not r["closed"] or r["stage_entered"][:7] == month)})
 
         sums = {b: dict({f: 0.0 for f in FLOWS}, beginning=0.0, ending=0.0) for b in BLOCKS}
-        counts = {b: {"beginning": 0, "new": 0, "won": 0, "lost": 0, "ending": 0} for b in BLOCKS}
+        counts = {b: {"beginning": 0, "new": 0, "won": 0, "lost": 0, "ending": 0, "left": 0} for b in BLOCKS}
         ledger = []
 
         def note(b, kind, r, value, why=""):
@@ -120,6 +126,7 @@ def run(snapshots, first, last):
 
         for d in set(opened) | set(later):
             s, e = opened.get(d), later.get(d)
+            came_from = None
             if s:
                 sums[block(s)]["beginning"] += amount(s)
                 counts[block(s)]["beginning"] += 1
@@ -128,11 +135,13 @@ def run(snapshots, first, last):
                 counts[block(e)]["ending"] += 1
 
             if s and e and block(s) != block(e):
-                # Re-tagged: leaves its old block, joins the new one as created.
+                # Re-tagged: leaves its old block and joins the new one.
                 move(block(s), -amount(s), s, "re-tagged to %s" % block(e))
-                s = None
+                counts[block(s)]["left"] += 1
+                came_from, s = block(s), None
             if s and not e:
                 move(block(s), -amount(s), s, "left the pipeline without closing")
+                counts[block(s)]["left"] += 1
                 continue
             if not e:
                 continue
@@ -143,9 +152,12 @@ def run(snapshots, first, last):
                 note(b, "created", e, amount(e))
                 counts[b]["new"] += 1
             else:
-                # An older deal moved up from Qualification: the sheet has
-                # always counted that as an increase, not a new opportunity.
-                move(b, amount(e), e, "entered the pipeline from Qualification")
+                # An older deal moved up from Qualification, or re-tagged in:
+                # the sheet has always booked its value as an increase, not
+                # created pipeline, but it is a new opportunity in the block.
+                move(b, amount(e), e, "re-tagged from %s" % came_from if came_from
+                     else "entered the pipeline from Qualification")
+                counts[b]["new"] += 1
             if e["closed"]:
                 note(b, outcome(e), e, amount(e))
                 counts[b][outcome(e)] += 1

@@ -43,6 +43,13 @@ def _():
     assert len(excluded) == 3, excluded
 
 
+@case("a LinkedIn credit on the 1st reduces the month before, it is not a subscription")
+def _():
+    out, excluded = C.run([charge("LinkedIn", "2026-08-20", 300), charge("LinkedIn", "2026-09-01", -150)],
+                          ["2026-08"])
+    assert out["2026-08"][15]["value"] == 150 and not excluded, (out, excluded)
+
+
 @case("Meta and the outbound contractor count when charged")
 def _():
     out, _ = C.run([charge("Facebook Ads", "2026-07-01", 900), charge("DirectB2BLeads", "2026-07-06", 2000)],

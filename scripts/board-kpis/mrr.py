@@ -292,33 +292,34 @@ def classify(before, after, had_mrr_earlier):
 
 def ended_before(subscriptions, products, config, month):
     """Customers with a paid subscription that ended before `month` began."""
-    names = {p["id"]: p.get("name", "") for p in products}
-    excluded = set(config["excluded_products"])
+    paid = paid_test(products, config)
     out = set()
     for sub in subscriptions:
         if not sub.get("ended_at") or month_of(sub["ended_at"]) >= month:
             continue
-        paid = any(
-            (it["price"].get("unit_amount") or 0) > 0
-            and names.get(it["price"]["product"] if isinstance(it["price"]["product"], str)
-                          else it["price"]["product"]["id"], "") not in excluded
-            for it in sub["items"]["data"])
-        if paid:
+        if paid(sub):
             out.add(customer_id(sub))
     return out
+
+
+def paid_test(products, config):
+    """sub -> True when it has a priced item on a product that is not excluded."""
+    names = {p["id"]: p.get("name", "") for p in products}
+    excluded = set(config["excluded_products"])
+    return lambda sub: any(
+        (it["price"].get("unit_amount") or 0) > 0
+        and names.get(it["price"]["product"] if isinstance(it["price"]["product"], str)
+                      else it["price"]["product"]["id"], "") not in excluded
+        for it in sub["items"]["data"])
 
 
 def customer_dates(subscriptions, products, config):
     """{customer: (first paid subscription start, last end)} as Stripe timestamps.
     The Churn Inputs tab's Stripe Start Date and Stripe End Date."""
-    names = {p["id"]: p.get("name", "") for p in products}
-    excluded = set(config["excluded_products"])
+    paid = paid_test(products, config)
     out = {}
     for sub in subscriptions:
-        paid = any(names.get(it["price"]["product"] if isinstance(it["price"]["product"], str)
-                             else it["price"]["product"]["id"], "") not in excluded
-                   for it in sub["items"]["data"])
-        if not paid:
+        if not paid(sub):
             continue
         cid = customer_id(sub)
         start = sub.get("start_date") or sub.get("created")

@@ -9,13 +9,17 @@
 -- One row per deal per boundary (midnight New York on the 1st) where the deal
 -- was then in one of the three pipelines and either open or closed during the
 -- month just ended. A closure only counts when the stage before it was in one
--- of the three pipelines too: on 2026-07-27 about 1,500 legacy deals from the
--- deprecated pipelines were bulk-moved straight into Opportunity Closed
--- Won/Lost, which is a cleanup, not a month's activity.
+-- of the three pipelines or Qualification (768262977): on 2026-07-27 about
+-- 1,500 legacy deals from the deprecated pipelines were bulk-moved straight
+-- into Opportunity Closed Won/Lost, which is a cleanup, not a month's
+-- activity. "During the month" runs from the previous boundary, both at
+-- midnight New York, so months across a daylight-saving change neither
+-- overlap nor leave a gap.
 -- {{first}} and {{last}} are the first and last boundary,
 -- e.g. 2026-06-01 and 2026-10-01: replace them before running.
 WITH b AS (
-  SELECT (d::date::timestamp AT TIME ZONE 'America/New_York') AS t
+  SELECT (d::date::timestamp AT TIME ZONE 'America/New_York') AS t,
+         ((d - INTERVAL '1 month')::date::timestamp AT TIME ZONE 'America/New_York') AS prior
   FROM generate_series(DATE '{{first}}', DATE '{{last}}', INTERVAL '1 month') d
 ),
 history AS (
@@ -24,7 +28,7 @@ history AS (
   FROM hubspot.deal_stage
 ),
 stage AS (
-  SELECT DISTINCT ON (b.t, s.deal_id) b.t, s.deal_id, s.value AS stage, s.date_entered, s.previous
+  SELECT DISTINCT ON (b.t, s.deal_id) b.t, b.prior, s.deal_id, s.value AS stage, s.date_entered, s.previous
   FROM b JOIN history s ON s.date_entered < b.t
   ORDER BY b.t, s.deal_id, s.date_entered DESC
 ),
@@ -56,7 +60,7 @@ LEFT JOIN acct ON acct.t = stage.t AND acct.deal_id = stage.deal_id
 LEFT JOIN hubspot.deal_pipeline_stage prev ON prev.stage_id = stage.previous
 WHERE ps.pipeline_id IN ('772338804', '785877425', '99167368')
   AND (NOT ps.is_closed
-       OR (stage.date_entered >= stage.t - INTERVAL '1 month'
+       OR (stage.date_entered >= stage.prior
            AND (stage.previous IS NULL
-                OR prev.pipeline_id IN ('772338804', '785877425', '99167368'))))
+                OR prev.pipeline_id IN ('772338804', '785877425', '99167368', '768262977'))))
 ORDER BY 1, 2
