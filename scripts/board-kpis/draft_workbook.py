@@ -151,8 +151,8 @@ def fill_stripe(d, m, mrr, history):
     avg = lambda xs: round(sum(xs) / len(xs), 2) if xs else None
     d.put(month, 75, avg([r[1] for r in history]), "Average Days to Churn, every Churn Inputs row", "")
     d.put(month, 134, avg([r[1] for r in history if r[0] == "Direct"]), "Average Days to Churn, Direct rows", "")
-    d.put(month, 192, avg([r[1] for r in history if r[0] == "Reseller"]), "Average Days to Churn, Reseller rows",
-          "July's 224.84 does not reproduce this way (213.59); check how it was worked out")
+    d.put(month, 192, avg([r[1] for r in history if r[0] in ("Reseller", "Agency")]),
+          "Average Days to Churn, Reseller rows (older rows are typed 'Agency')", "")
 
 
 def fill_pipeline(d, p):
@@ -276,7 +276,6 @@ OPEN_ITEMS = [
     "July New Customers (AL51) is typed as 8; AL109 + AL166 = 9. Aug/Sep use the formula.",
     "Customer counts chain from the sheet's July ending (Direct 56, Reseller 33). Stripe has 55 and 34 paying at July end, so each channel is one off. Rebase like MRR?",
     "Reseller $ churn rates (rows 185-186) are typed as 0% every month; left as is.",
-    "Reseller Running Avg. Days to churn (AL192 = 224.84) does not reproduce from Churn Inputs (213.59).",
     "July MQLs: sheet has 23, Metabase question 139 gives 32 today (23 is the Organic Search count alone).",
     "MQL to customer: July backtests to 2 (My Marketing Department, CLINQ ZERO) against the sheet's 1.",
     "Qualification-pipeline deals fell from about 75 a month to 15 (Aug) and 14 (Sep), and MQLs fell to 13 in August. Worth confirming the inbound deal workflow did not change.",
