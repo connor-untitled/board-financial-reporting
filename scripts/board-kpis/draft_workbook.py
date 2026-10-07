@@ -223,9 +223,8 @@ def fill_mqls(d, month, q):
 
 
 def gaps(d, month):
-    for row, why in ((41, "Trial activations come from PostHog, which is not connected to this session"),
-                     (46, "New trials come from PostHog, which is not connected to this session"),
-                     (171, "Estimated CTAM is a manual estimate"),
+    # Trial rows (41, 46, 47) are no longer reported: trials ended with a GTM change.
+    for row, why in ((171, "Estimated CTAM is a manual estimate"),
                      (172, "Total active reseller clients: Stripe's client-account product only began in August 2026 (5 accounts), so it cannot give this. Likely the Reseller End-Clients tab or consumption data")):
         d.gap(month, row, why)
     # Reseller $ churn rates, built like the Direct block's rows 127-128
@@ -420,6 +419,8 @@ def commentary(stripe, pipeline, export_ws):
         out[51] = "Now the sum of new Direct and new Reseller customers."
         if all(isinstance(v, (int, float)) for v in [typed] + parts) and typed != sum(parts):
             out[51] += " %s was entered as %d; the detail behind it shows %d." % (prior, typed, sum(parts))
+        for row in (41, 46, 47):
+            out[row] = "Free trials are no longer offered following a go-to-market change, so trial metrics are no longer reported."
         out[44] = "Each month now counts marketing spend through that month only; previously later months' spend could flow into earlier months."
         for row in TTM_ROWS:
             out[row] = TTM_COMMENT
