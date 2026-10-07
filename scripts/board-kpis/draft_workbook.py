@@ -13,8 +13,8 @@ In the copy, for each reported month:
 - every row whose July cell is a formula and whose cell for the month is
   empty gets July's formula moved across, so the summary, Reseller and Upsell
   blocks calculate;
-- the input cells are filled from Stripe, HubSpot (via Metabase) and
-  Metabase question 139;
+- the input cells are filled from Stripe, HubSpot (via Metabase),
+  Metabase question 139 and Ramp (CAC Inputs, from cac.json);
 - cancellations are appended to Churn Inputs, and the churn-age rows are
   worked out from that tab;
 - a Sources tab lists every filled cell with where it came from, and the
@@ -186,13 +186,70 @@ def gaps(d, month):
                      (171, "Estimated CTAM is a manual estimate"),
                      (172, "Total active reseller clients: Stripe's client-account product only began in August 2026 (5 accounts), so it cannot give this. Likely the Reseller End-Clients tab or consumption data"),
                      (185, "Typed as 0% every month; left as the sheet has it. Should it be a formula like the Direct block's?"),
-                     (186, "Typed as 0% every month; left as the sheet has it."),
-                     (215, "Needs CAC Inputs for the month (payroll and ad spend). Ramp is not connected"),
-                     (216, "Needs CAC Inputs for the month")):
+                     (186, "Typed as 0% every month; left as the sheet has it.")):
         d.gap(month, row, why)
     if d.ws.cell(185, column(month)).value is None:
         d.ws.cell(185, column(month)).value = 0
         d.ws.cell(186, column(month)).value = 0
+
+
+CAC = "CAC Inputs"
+CAC_SOURCES = {
+    13: "Ramp, Google Ads charges; a charge on the 1st counts in the month before",
+    14: "Ramp, Reddit charges (none since March)",
+    15: "Ramp, LinkedIn ad charges; a charge on the 1st counts in the month before; subscriptions left out",
+    16: "Ramp, Facebook Ads charges as they fall (billed on a spend threshold, so they trail spend)",
+    20: "Ramp, DirectB2BLeads (GL 7013)",
+}
+
+
+def fill_cac(d, month, cac):
+    """Fill the CAC Inputs column for the month and move July's totals across."""
+    ws = d.wb[CAC]
+    c = column(month)
+    for r in range(1, ws.max_row + 1):
+        src = ws.cell(r, TEMPLATE_COL)
+        if isinstance(src.value, str) and src.value.startswith("="):
+            ws.cell(r, c).value = Translator(src.value, origin=src.coordinate).translate_formula(
+                ws.cell(r, c).coordinate)
+            ws.cell(r, c).number_format = src.number_format
+    name = dt.datetime.strptime(month, "%Y-%m").strftime("%B")
+    for r in (4, 12):
+        ws.cell(r, c).value = name
+
+    def put(row, value, source, detail=""):
+        ws.cell(row, c).value = value
+        ws.cell(row, c).number_format = ws.cell(row, TEMPLATE_COL).number_format
+        d.sources.append([month, "'%s'!%s%d" % (CAC, col_letter(c), row), ws.cell(row, 1).value.strip(),
+                          value, source, detail])
+
+    for row, value in cac["carry_forward"].items():
+        put(int(row), value, "Carried forward from July (payroll is not in Ramp)", "Edit config.json cac.carry_forward when pay or headcount changes")
+    d.sources.append([month, "'%s'!%s6" % (CAC, col_letter(c)), "Sales Commissions", "left blank",
+                      "Blank every month since January 2024, as the sheet has it; not in Ramp", ""])
+    for row, cell in cac["months"][month].items():
+        put(int(row), cell["value"], CAC_SOURCES[int(row)], ", ".join(cell["charges"]))
+    for row, label in cac["zero_rows"].items():
+        put(int(row), 0, "Nothing in Ramp for %s" % label, "")
+
+
+# Ramp (with the 1st-of-month rule) against the sheet's typed values.
+CAC_VARIANCE = [
+    ["Month", "Line", "Ramp", "Sheet", "Ramp minus sheet"],
+    ["2026-05", "Google Ads", 5017.64, 4941.62, 76.02],
+    ["2026-06", "Google Ads", 4570.51, 4599.55, -29.04],
+    ["2026-07", "Google Ads", 3209.49, 3224.18, -14.69],
+    ["2026-05", "LinkedIn Ads", 425.13, 427.99, -2.86],
+    ["2026-06", "LinkedIn Ads", 98.66, 98.66, 0],
+    ["2026-07", "LinkedIn Ads", 0, 0, 0],
+    ["2026-05", "Meta Ads", 0, 0, 0],
+    ["2026-06", "Meta Ads", 701.63, 1001.60, -299.97],
+    ["2026-07", "Meta Ads", 1006.03, 965.50, 40.53],
+    ["2026-03 to 07", "Outbound Contractor", 10000, 10000, 0],
+    [],
+    ["April is left out: its April 3 Google charge ($1,600.72) includes March spend, so April reads $1,050 over."],
+    ["Meta bills when spend crosses a threshold, so its charges trail spend; June and July together read $259 (13%) under."],
+]
 
 
 OPEN_ITEMS = [
@@ -206,6 +263,11 @@ OPEN_ITEMS = [
     "Deals with Account Type Unqualified are left out of pipeline totals; see Pipeline Ledger, 'left out'.",
     "Pipeline: on 2026-07-27 about 1,500 legacy deals were bulk-moved into Opportunity Closed Won/Lost. They are excluded.",
     "Pipeline Created vs Increase: deals created in the month are Created; older deals moving up from Qualification are Increase. July backtest: Created, Won, Lost and Ending tie; the sheet's typed July Increase/Decrease do not roll forward to its own Ending, so those two rows differ.",
+    "CAC: Sales Commissions (CAC Inputs row 6) have been blank since January 2024, so CAC has excluded commissions all year. Left blank to match; say if they should come back in.",
+    "CAC: salaries are July's carried forward (Marketing 8,333.33, CSM 6,666.67, Sales 0). Any change since July needs config.json cac.carry_forward.",
+    "CAC: DirectB2BLeads (outbound contractor) has no charges in Aug or Sep, so the line is $0. They also churned as a customer in August. Confirm the engagement ended.",
+    "CAC: a $500 Prospect Desk charge coded to 7010 Advertising in August is left out (Prospect Desk is the DSP partner). Confirm it is not marketing.",
+    "CAC: LinkedIn subscriptions left out of LinkedIn Ads: $95.39 'LinkedIn subscription' (card 8731), $127.19 on the 7th, and ~$20 on the 1st. See the CAC Variance tab for how Ramp compares to the typed months.",
     "Stockyard Media Haus, LLC (signed Oct 2) has no client_type in Stripe; it will stop October's run until tagged.",
 ]
 
@@ -237,6 +299,7 @@ def main():
     wb = openpyxl.load_workbook(w.path(EXPORT))
     d = Draft(wb)
     stripe, pipeline, mqls = load("draft.json"), load("pipeline.json"), load("mqls.json")["months"]
+    cac = load("cac.json")
     history = churn_rows(wb)
     pipe = {p["month"]: p for p in pipeline}
     for m in stripe["months"]:
@@ -247,6 +310,8 @@ def main():
             fill_pipeline(d, pipe[month])
         if month in mqls:
             fill_mqls(d, month, mqls[month])
+        if month in cac["months"]:
+            fill_cac(d, month, cac)
         gaps(d, month)
 
     ws = ledger_tab(wb, "Sources", ["Month", "Cell", "Metric", "Value", "Source", "Detail"], d.sources)
@@ -267,6 +332,12 @@ def main():
                 for p in pipeline for r in p["ledger"]]
                + [[p["month"], "none", "left out", u["deal"].strip(), str(u["deal_id"]), None,
                    "Account Type Unqualified or blank: tag in HubSpot"] for p in pipeline for u in p["untagged"]])
+    ws = ledger_tab(wb, "CAC Variance", CAC_VARIANCE[0], CAC_VARIANCE[1:])
+    ws.column_dimensions["A"].width = 14
+    ws.column_dimensions["B"].width = 22
+    ledger_tab(wb, "CAC Excluded", ["Date", "Payee", "Amount", "Memo", "Card"],
+               [[e["time"][:10], e["payee"], e["amount"], e.get("memo") or "", e.get("card") or ""]
+                for e in cac["excluded"]])
     trim(wb)
     wb.save(w.path(OUT))
     print(w.path(OUT), len(d.sources), "cells documented")

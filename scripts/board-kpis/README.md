@@ -23,6 +23,8 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 | `test_mrr.py` | One case per rule, each named after the account that showed it |
 | `sql/deal_snapshots.sql` | Month-boundary snapshots of HubSpot deals, run in Metabase |
 | `pipeline.py` | Pipeline roll-forward per block (Direct, Reseller, Upsell) from those snapshots |
+| `ramp_cac.py` | CAC Inputs paid-media and contractor lines from Ramp charges |
+| `test_ramp_cac.py` | The CAC rules, one case each |
 | `draft_workbook.py` | A review copy of the workbook with the reported months filled, plus Sources and ledger tabs |
 
 ```bash
@@ -156,6 +158,28 @@ Referrals, excluding gmail.com. Row 42 counts the month's new Stripe
 customers whose email domain matches a contact in that population. Both go
 in `.board-kpis/mqls.json`.
 
+## CAC Inputs
+
+Ramp's `spend` reporting dataset gives every charge for the payees in
+`config.json` `cac.ramp_payees`. Save them, through the first week of the
+next month, to `.board-kpis/ramp_spend.json` (payee, time, amount, memo,
+card, gl) and run `python3 scripts/board-kpis/ramp_cac.py`.
+
+- Google Ads, LinkedIn and Meta are what was charged, not what each platform
+  reports. A charge on the 1st counts in the month before: Google settles
+  the month's remainder then, and LinkedIn bills its ads then. Backtested on
+  May to July 2026, Google lands within $76, $29 and $15 of the typed sheet
+  and LinkedIn within $3. Meta bills on a spend threshold, so it trails
+  spend: June read $300 under, July $41 over.
+- LinkedIn subscriptions ($95.39 "LinkedIn subscription", $127.19 on the 7th,
+  ~$20 on the 1st) are left out of LinkedIn Ads and listed.
+- The outbound contractor is DirectB2BLeads. Reddit, DSP, PR and marketing
+  contractors have no Ramp charges.
+- Salaries are not in Ramp, and QuickBooks has no ledger published to Ramp,
+  so they carry forward from `cac.carry_forward`. Edit it when pay or
+  headcount changes. Sales commissions have been blank since January 2024
+  and stay blank.
+
 ## The review workbook
 
 Export the live workbook from Drive as .xlsx to `.board-kpis/kpi_export.xlsx`
@@ -172,5 +196,6 @@ person (trials, CTAM, reseller end clients, CAC inputs).
   empty input cells for the reported month. Separately, a one-time,
   explicitly approved change adds the Reseller Reactivation row and extends
   the August and September formulas.
-- **Trials, CTAM, reseller end clients and CAC.** Trials need PostHog, CAC
-  needs payroll and ad spend (Ramp), and the other two are estimates.
+- **Trials, CTAM, reseller end clients and payroll.** Trials need PostHog,
+  payroll needs a payroll source or a QuickBooks ledger published to Ramp,
+  and the other two are estimates.
