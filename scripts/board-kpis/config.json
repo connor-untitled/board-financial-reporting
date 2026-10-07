@@ -67,6 +67,17 @@
       "report": "2026-09",
       "what": "Reseller $ churn rates for December 2025 to July 2026 were entered as 0%; recalculated with the formula used through November 2025",
       "note": "Recalculated in the September 2026 report. Previously entered as 0%."
+    },
+    {
+      "rows": [
+        5
+      ],
+      "from": "2023-07",
+      "to": "2026-07",
+      "report": "2026-09",
+      "mode": "header_date",
+      "what": "Month headers: the stored dates are corrected to each column's month (the sheet shows the year as the day, e.g. July-26); on screen only September 2023 changes, from 'Sept-23' to 'September-23'",
+      "note": "Header date corrected in the September 2026 report."
     }
   ]
 }

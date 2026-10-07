@@ -277,6 +277,9 @@ def restate(d):
     config = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")))
     for entry in config.get("restate", []):
         first, last = column(entry["from"]), column(entry["to"])
+        if entry.get("mode") == "header_date":
+            restate_headers(d, entry, first, last)
+            continue
         for row in entry["rows"]:
             src = d.ws.cell(row, first - 1)
             for c in range(first, last + 1):
@@ -288,6 +291,36 @@ def restate(d):
             d.notes.append(["Row %d %s, %s to %s" % (row, d.ws.cell(row, 1).value.strip(), col_letter(first), col_letter(last)),
                             "Restatement", entry["what"], "September 2026 report",
                             0, "=%s%s%d" % (MAIN_REF, col_letter(last), row)])
+
+
+def month_of_column(c):
+    """'YYYY-MM' for a sheet column number (column B is July 2023)."""
+    y, m = divmod(c - 2 + 6, 12)
+    return "%04d-%02d" % (2023 + y, m + 1)
+
+
+def header_date(c):
+    """The month header the sheet uses: the column's month, with the year's
+    last two digits as the day, shown as e.g. 'July-26' (format mmmm-d)."""
+    y, m = map(int, month_of_column(c).split("-"))
+    return dt.datetime(y, m, y % 100)
+
+
+def restate_headers(d, entry, first, last):
+    changed = []
+    for row in entry["rows"]:
+        for c in range(first, last + 1):
+            cell = d.ws.cell(row, c)
+            want = header_date(c)
+            if cell.value != want:
+                d.sources.append([entry["to"], cell.coordinate, "Month header", want, "Restated: " + entry["what"],
+                                  "Was %r" % cell.value])
+                cell.value = want
+                cell.number_format = d.ws.cell(row, first).number_format
+                changed.append(cell.coordinate)
+    if changed:
+        d.notes.append(["Row %d month headers (%s)" % (entry["rows"][0], ", ".join(changed)), "Restatement",
+                        entry["what"], "September 2026 report", None, None])
 
 
 def restated_cells(config):

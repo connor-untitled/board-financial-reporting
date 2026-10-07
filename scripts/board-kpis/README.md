@@ -264,6 +264,12 @@ change those cells and no others through July. Reseller $ churn rates (rows
 185-186) for December 2025 to July 2026, typed as 0%, were restated in the
 September 2026 report.
 
+An entry with `"mode": "header_date"` instead sets row 5's month headers to
+the date the sheet uses for each column: the month, with the year's last two
+digits as the day, shown as e.g. "July-26". The September 2026 report
+corrected eight stored dates that way (only September 2023, typed as text,
+changed on screen).
+
 ## Reporting conventions
 
 1. Historical values and formulas stay as published, so a change does not
