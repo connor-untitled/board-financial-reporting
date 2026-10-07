@@ -5,15 +5,26 @@
   "first_month": "2026-08",
   "rebase": {
     "month": "2026-08",
-    "sheet_prior_ending": {"Direct": 44950, "Reseller": 23100}
+    "sheet_prior_ending": {
+      "Direct": 44950,
+      "Reseller": 23100
+    },
+    "sheet_prior_customers": {
+      "Direct": 56,
+      "Reseller": 33
+    }
   },
   "excluded_products": [
     "Untitled - Free Trial",
     "Consumption Fees",
     "Lead Data Stream Consumption Fees"
   ],
-  "services_products": ["Shopify Development"],
-  "client_account_products": ["Untitled Client Accounts"],
+  "services_products": [
+    "Shopify Development"
+  ],
+  "client_account_products": [
+    "Untitled Client Accounts"
+  ],
   "arrears_customers": {
     "cus_T6PHyFO313HJe5": "Agency in Pursuit",
     "cus_QjyLCnr4Mr6ZAP": "Cumulus Media",
@@ -27,5 +38,21 @@
     "cus_PodEbqNL4Vbl6j": "RedTag Digital",
     "cus_T2113bqX3VYv7z": "Stone Path Consulting",
     "cus_ShjJraYEvcjNxL": "Ticketsauce.com, Inc."
+  },
+  "cac": {
+    "_comment": "CAC Inputs tab. Salaries are not in Ramp: they carry forward from July 2026 until payroll is connected. Edit when headcount or pay changes.",
+    "first_month": "2026-08",
+    "carry_forward": {
+      "5": 0,
+      "7": 8333.33,
+      "8": 6666.67
+    },
+    "ramp_payees": {
+      "Google Ads": "ba892a3e-8520-4bab-9147-70692cdb38e5",
+      "Facebook Ads": "6c903a5c-f06e-43dd-b264-c72d9f1e71cc",
+      "LinkedIn": "92cd8d9f-b6cb-4945-a0b8-8ea2b8f379e1",
+      "Reddit": "efeb9ec1-4367-4366-a90b-7ec6ebade1ca",
+      "DirectB2BLeads": "1589d34b-d45d-4303-9d0c-52ce6be3cfcc"
+    }
   }
 }

@@ -21,11 +21,19 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 | `stripe_pull.py` | Saves invoices, subscriptions, customers and products from Stripe to the workspace |
 | `mrr.py` | Pure logic: per-customer monthly MRR, the movements, and the draft (`draft.json`, `ledger.md`) |
 | `test_mrr.py` | One case per rule, each named after the account that showed it |
+| `sql/deal_snapshots.sql` | Month-boundary snapshots of HubSpot deals, run in Metabase |
+| `pipeline.py` | Pipeline roll-forward per block (Direct, Reseller, Upsell) from those snapshots |
+| `test_pipeline.py` | The roll-forward rules, one case each |
+| `ramp_cac.py` | CAC Inputs paid-media and contractor lines from Ramp charges |
+| `test_ramp_cac.py` | The CAC rules, one case each |
+| `draft_workbook.py` | A review copy of the workbook with the reported months filled, plus Sources and ledger tabs |
 
 ```bash
 python3 scripts/board-kpis/stripe_pull.py   # -> .board-kpis/*.json
 python3 scripts/board-kpis/mrr.py           # -> .board-kpis/draft.json, ledger.md
 python3 scripts/board-kpis/test_mrr.py      # no network, no credentials
+python3 scripts/board-kpis/test_pipeline.py
+python3 scripts/board-kpis/test_ramp_cac.py
 ```
 
 Both commands are argument-free, because an allow rule can only name a
@@ -108,8 +116,11 @@ Direct was $1,550 too high and Reseller about $1,050 too low. No single
 account caused it. It came from hand-entered movements over time, and both
 Stripe and the Rev Rec workbook agree on the customer roster. So August 2026
 starts from the Stripe roster, and the draft reports the difference once as
-`rebase_adjustment`. `config.json` holds the sheet's July ending that it is
-measured against. After August, `rebase` has no effect.
+`rebase_adjustment`. Customer counts rebase the same way: August's
+Beginning # of Direct customers and Resellers (rows 108 and 165) are Stripe's
+paying customers at July month end, and the gap to the sheet (Direct 56 vs
+55, Reseller 33 vs 34) is reported as `customer_rebase_adjustment`.
+`config.json` holds the sheet's July endings that both are measured against. After August, `rebase` has no effect.
 
 ## Backtest
 
@@ -119,6 +130,106 @@ cancellations in the sheet don't agree with the sheet's own Churn Inputs tab,
 and a Bedzzz expansion was never entered. Treat a difference on a month from
 before automation as a question about the sheet first.
 
+## Pipeline (rows 95-104, 152-161, 199-208)
+
+HubSpot's API has no history, so the pipeline comes from the Fivetran sync
+in Metabase (database "Untitled Internal"): `hubspot.deal_stage` for stage
+changes and `hubspot.deal_property_history` for amount. Run
+`sql/deal_snapshots.sql` with the first and last month boundary filled in,
+save the rows as a JSON list to `.board-kpis/deal_snapshots.json`, then
+`python3 scripts/board-kpis/pipeline.py`.
+
+- Direct is the Opportunity and Enterprise pipelines with Account Type
+  Single Brand or Brand of Brands; Reseller is the same pipelines with Agency
+  Reseller or Data Integration Partner; Upsell is the Expansion pipeline.
+- Account Type is read as it is today. Deals get tagged a week or two after
+  they are created, and July only ties this way.
+- Deals created in the month are Created. Older deals moving up from
+  Qualification are an Increase.
+- Ending is the open deals at month end, and the flows tie to it by
+  construction.
+- Opportunity counts tie the same way: New Opportunities is every deal that
+  joined the block (created, moved up from Qualification, or re-tagged in).
+  A deal that leaves without closing is flagged on the Sources tab, since
+  the sheet has no row for it.
+- August 2026 rebases Beginning Opportunities to the open deals at July
+  month end (Direct 16, Reseller 18, Upsell 8; the sheet's formulas carried
+  21, 29 and 17). Beginning Pipeline Value is rebased only if the typed July
+  Ending differs from the snapshot; in July all three tie.
+- The 2026-07-27 bulk move of about 1,500 legacy deals into Opportunity
+  Closed Won/Lost is excluded in the SQL.
+
+Backtested on July 2026: Ending ties in all three blocks, and Created
+(count and value), Won and Lost tie for Direct. The sheet's typed
+Increase/Decrease never rolled forward to its own Ending, so those two rows
+differ.
+
+## MQLs (rows 40, 42)
+
+Row 40 is Metabase question 139: contacts created in the month from Organic
+Search, Paid Search, Email Marketing, Paid Social, Social Media or AI
+Referrals, excluding gmail.com. Row 42 counts the month's new Stripe
+customers whose email domain matches a contact in that population. Both go
+in `.board-kpis/mqls.json`.
+
+## CAC Inputs
+
+Ramp's `spend` reporting dataset gives every charge for the payees in
+`config.json` `cac.ramp_payees`. Save them, through the first week of the
+next month, to `.board-kpis/ramp_spend.json` (payee, time, amount, memo,
+card, gl) and run `python3 scripts/board-kpis/ramp_cac.py`.
+
+- Google Ads, LinkedIn and Meta use platform-reported spend, which is what
+  the sheet has always carried (Google's own May figure ties to the cent).
+  Put HubSpot's ad-integration figures in `.board-kpis/ad_spend.json` as
+  `{"YYYY-MM": {"Google Ads": x, "LinkedIn": y, "Facebook Ads": z}}`. Ramp
+  charges are kept beside them in the CAC Variance tab, and a month with no
+  platform figure falls back to Ramp and says so. Automating this needs the
+  Google Ads Fivetran sync (`google_ads_ft` in Metabase, stopped 2026-07-02)
+  restarted and LinkedIn and Meta connectors added.
+- Card charges trail platform spend. Google bills in $500 steps and settles
+  the rest on the 1st; LinkedIn bills on the 1st or later; Meta bills on a
+  spend threshold. For the reconciliation a Google or LinkedIn charge on the
+  1st counts in the month before.
+- LinkedIn subscriptions ($95.39 "LinkedIn subscription", $127.19 on the 7th,
+  ~$20 on the 1st) are left out of LinkedIn Ads and listed.
+- The outbound contractor is DirectB2BLeads (ended July 2026). Reddit, DSP, PR and marketing
+  contractors have no Ramp charges.
+- Salaries are not in Ramp, and QuickBooks has no ledger published to Ramp,
+  so they carry forward from `cac.carry_forward`. Edit it when pay or
+  headcount changes. Sales commissions are excluded from CAC, by decision.
+  Prospect Desk charges are DSP pass-through and are excluded.
+
+## The review workbook
+
+Export the live workbook from Drive as .xlsx to `.board-kpis/kpi_export.xlsx`
+and run `python3 scripts/board-kpis/draft_workbook.py`. It writes
+`kpi_draft.xlsx` with July's formulas moved across to the new months, the
+inputs filled, cancellations appended to Churn Inputs, and a Sources tab
+naming where every filled cell came from and which cells still need a
+person (trials, CTAM, reseller end clients, CAC inputs).
+
+From August 2026 the new months also get two corrected formulas:
+
+- TTM rows (62, 64, 65, 70, 71, 113, 121, 123, 124, 129, 130, 170, 179,
+  181, 182, 187, 188, 217, 221) cover 12 months. July's published formulas
+  span 13 (`Z:AL`).
+- Running Cost per Conversion (row 44) sums CAC Inputs through the month
+  itself. July's published formula sums eight months ahead (to `AT`), so it
+  picks up later spend as soon as it is entered.
+
+## Reporting conventions
+
+1. Historical values and formulas stay as published, so a change does not
+   ripple back through the history. Corrections apply from the month they
+   are made. At 2026 year-end, review rebasing any history that was
+   populated incorrectly (the held items are listed under Open items on the
+   Sources tab).
+2. When a month's report is finalized, every calculation change or rebase is
+   annotated for the board notes. The Board Notes tab is that record: each
+   change, the month it takes effect, and July 2026 as published beside July
+   under the new method.
+
 ## Not built yet
 
 - **Writing to the sheet.** This needs the service account in
@@ -126,4 +237,6 @@ before automation as a question about the sheet first.
   empty input cells for the reported month. Separately, a one-time,
   explicitly approved change adds the Reseller Reactivation row and extends
   the August and September formulas.
-- **Customer counts, pipeline, MQLs and CAC.** These are later phases.
+- **Trials, CTAM, reseller end clients and payroll.** Trials need PostHog,
+  payroll needs a payroll source or a QuickBooks ledger published to Ramp,
+  and the other two are estimates.

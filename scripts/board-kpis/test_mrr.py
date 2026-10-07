@@ -82,11 +82,12 @@ def monthly(cid, first, last, amount, **kw):
 
 
 def subscription(sid, cid, status="active", ended=None, amount=50000, product="prod_plan",
-                 items=None):
+                 items=None, start=None):
     """items: [(item_id, product, unit_amount, quantity)] overrides the single item."""
     items = items or [("si_1", product, amount, 1)]
     return {"id": sid, "customer": cid, "status": status,
             "ended_at": ts(ended) if ended else None,
+            "start_date": ts(start) if start else None,
             "items": {"data": [{"id": iid, "quantity": qty, "price": {
                 "product": prod, "unit_amount": unit,
                 "recurring": {"interval": "month", "interval_count": 1}}}
@@ -319,6 +320,40 @@ def _():
             calc = (m["beginning"][ch] + i["new"] + i["expansion"] + i["reactivation"]
                     - i["contraction"] - i["cancellation"])
             assert abs(calc - m["ending"][ch]) < 0.01, (m["month"], ch, m)
+
+
+@case("Stockyard Media Haus: a subscription signed after the month is not carried into it")
+def _():
+    inv = [plan_and_accounts("c1", "2026-10", 1, reason="subscription_create", start="2026-10-02")]
+    subs = [subscription("sub_1", "c1", start="2026-10-02", items=[
+        ("si_1", "prod_license", 50000, 1), ("si_acc", "prod_accounts", 35000, 1)])]
+    d = run(inv, subs, [customer("c1", channel=None, name="Stockyard")])
+    assert "error" not in d, d
+    assert month(d, "2026-09")["ending"]["Direct"] == 0, month(d, "2026-09")
+
+
+@case("customer counts and churn rows follow the movements")
+def _():
+    inv = (monthly("c1", "2026-06", "2026-08", 50000)
+           + monthly("c2", "2026-09", "2026-10", 30000, sub="sub_2", item="si_2"))
+    subs = [subscription("sub_1", "c1", status="canceled", ended="2026-09-15", start="2026-06-01"),
+            subscription("sub_2", "c2", start="2026-09-01")]
+    d = run(inv, subs, [customer("c1", name="Gone"), customer("c2", "Reseller")])
+    sep = month(d, "2026-09")
+    assert sep["customers"] == {"Direct": {"new": 0, "churned": 1, "beginning": 1, "ending": 0},
+                                "Reseller": {"new": 1, "churned": 0, "beginning": 0, "ending": 1}}, sep["customers"]
+    assert sep["churn_rows"] == [{"client": "Gone", "customer_type": "Direct", "mrr": 500,
+                                  "start": "2026-06-01", "end": "2026-09-15", "days": 106}], sep
+
+
+@case("the rebase month reports the customer-count gap to the sheet's prior ending")
+def _():
+    cfg = config(rebase={"month": "2026-08", "sheet_prior_ending": {"Direct": 500, "Reseller": 0},
+                         "sheet_prior_customers": {"Direct": 2, "Reseller": 0}})
+    d = run(monthly("c1", "2026-07", "2026-10", 50000), [], [customer("c1")], cfg)
+    aug = month(d, "2026-08")
+    assert aug["customers"]["Direct"]["beginning"] == 1 and aug["customers"]["Direct"]["ending"] == 1, aug
+    assert aug["customer_rebase_adjustment"] == {"Direct": -1, "Reseller": 0}, aug
 
 
 def main():
