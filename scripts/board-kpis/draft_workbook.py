@@ -347,8 +347,6 @@ def commentary(stripe, pipeline, export_ws):
             for blk, row in (("Direct", 101), ("Reseller", 158), ("Upsell", 205)):
                 out[row] = ("%s opens at the %d deals actually open at %s month end; the previous count carried "
                             "closed or removed deals forward." % (name(first["month"]), p["counts"][blk]["beginning"], prior))
-            for row in (102, 159, 206):
-                out[row] = "Now includes existing deals that moved from qualification into the active pipeline during the month."
         rates = ", ".join("%s %.1f%%" % (name(m["month"]), 100 * (m["inputs"]["Reseller"]["contraction"]
                           + m["inputs"]["Reseller"]["cancellation"]) / m["ending"]["Reseller"]) for m in stripe["months"])
         out[185] = "Reseller revenue churn is now calculated each month (it showed 0%% since January). Gross churn: %s." % rates
@@ -360,9 +358,34 @@ def commentary(stripe, pipeline, export_ws):
         out[44] = "Each month now counts marketing spend through that month only; previously later months' spend could flow into earlier months."
         for row in TTM_ROWS:
             out[row] = TTM_COMMENT
+    out.update(moved_up(stripe, pipeline, name))
     out[216] = "Salaries are held at %s levels until the payroll update." % name(shift(shift_from_template(), -1))
     out.update(REPORT_COMMENTARY.get(last["month"], {}))
     return dict(sorted(out.items()))
+
+
+def moved_up(stripe, pipeline, name):
+    """{New Opportunities row: text} for blocks where an existing deal moved
+    from qualification into the active pipeline during the report."""
+    months = {m["month"] for m in stripe["months"]}
+    rows = {"Direct": 102, "Reseller": 159, "Upsell": 206}
+    found = {b: [] for b in rows}
+    for p in pipeline:
+        if p["month"] in months:
+            for x in p["ledger"]:
+                if x["note"] == "entered the pipeline from Qualification":
+                    found[x["block"]].append((p["month"], x["deal"].strip(), x["amount"]))
+    out = {}
+    for blk, deals in found.items():
+        if not deals:
+            continue
+        when = " and ".join(dict.fromkeys(name(m) for m, _, _ in deals))
+        what = ("existing deal" if len(deals) == 1 else "existing deals")
+        detail = (", ".join("%s, $%s" % (d, "{:,.0f}".format(a)) for _, d, a in deals) if len(deals) <= 3
+                  else "$%s in total" % "{:,.0f}".format(sum(a for _, _, a in deals)))
+        out[rows[blk]] = "Includes %d %s that moved from qualification into the active pipeline in %s (%s)." % (
+            len(deals), what, when, detail)
+    return out
 
 
 def shift_from_template():

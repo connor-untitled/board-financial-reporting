@@ -188,9 +188,12 @@ def plan_churn(sheet, rows):
     return last, out, len(rows) - len(new)
 
 
-def cell_notes(commentary, cols):
-    """[(main tab cell, note)]: the commentary on the row's cell in the report's first month."""
-    return [("%s%d" % (col_letter(cols[0]), r), t) for r, t in commentary.items()]
+def cell_notes(commentary, cols, cleared=()):
+    """[(main tab cell, note)]: the commentary on the row's cell in the report's
+    first month, and an empty note on rows whose Notes line is being cleared."""
+    first = col_letter(cols[0])
+    return ([("%s%d" % (first, r), t) for r, t in commentary.items()]
+            + [("%s%d" % (first, r), "") for r in cleared if r not in commentary])
 
 
 def board_rows(draft_wb, label, support_link=None):
@@ -384,7 +387,8 @@ def main():
     churn = plan_churn(sheet, churn_rows(draft_wb))
     commentary = draft_commentary(draft_wb, cols)
     notes_col = plan_commentary(sheet, cols, commentary, draft_wb[D.MAIN].max_row)
-    notes = cell_notes(commentary, cols)
+    cleared = [int(ref[len(col_letter(cols[-1] + 1)):]) for ref, v in notes_col[1] if v == ""]
+    notes = cell_notes(commentary, cols, cleared)
     names = [dt.date(2023 + (c - 2 + 6) // 12, (c - 2 + 6) % 12 + 1, 1).strftime("%B %Y") for c in cols]
     label = "Report: %s, written %s" % (" to ".join(dict.fromkeys([names[0], names[-1]])), dt.date.today())
     board = board_rows(draft_wb, label, config.get("support_links", {}).get(label.split(",")[0]))
