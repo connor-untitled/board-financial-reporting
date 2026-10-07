@@ -214,7 +214,9 @@ and run `python3 scripts/board-kpis/draft_workbook.py`. It writes
 `kpi_draft.xlsx` with July's formulas moved across to the new months, the
 inputs filled, cancellations appended to Churn Inputs, and a Sources tab
 naming where every filled cell came from and which cells still need a
-person (trials, CTAM, reseller end clients, CAC inputs).
+person (CTAM, reseller end clients, CAC inputs). Trial rows (41, 46, 47)
+are no longer reported: free trials ended with a go-to-market change, and
+the Notes column says so.
 
 From August 2026 the new months also get two corrected formulas:
 
@@ -284,11 +286,7 @@ changed on screen).
 
 ## Not built yet
 
-- **Writing to the sheet.** This needs the service account in
-  `scripts/common/sheets.py` to have edit access to the KPI workbook. Writes will only fill
-  empty input cells for the reported month. Separately, a one-time,
-  explicitly approved change adds the Reseller Reactivation row and extends
-  the August and September formulas.
-- **Trials, CTAM, reseller end clients and payroll.** Trials need PostHog,
-  payroll needs a payroll source or a QuickBooks ledger published to Ramp,
-  and the other two are estimates.
+- **A Reseller Reactivation row.** The sheet has none; a reseller
+  reactivation is flagged on the Sources tab until one is added.
+- **CTAM, reseller end clients and payroll.** Payroll needs a payroll source
+  or a QuickBooks ledger published to Ramp, and the other two are estimates.
