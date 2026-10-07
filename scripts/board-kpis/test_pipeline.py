@@ -68,6 +68,16 @@ def _():
     ties(m, "Reseller")
 
 
+@case("a deal moved to Expansion after month end is Upsell, as HubSpot's snapshot report shows it")
+def _():
+    rows = [snap("2026-09-01", "boa", 1600), snap("2026-10-01", "boa", 1600)]
+    for r in rows:
+        r["current_pipeline"] = P.EXPANSION
+    m = P.run(rows, "2026-09", "2026-09")[0]
+    assert m["blocks"]["Direct"]["ending"] == 0 and m["blocks"]["Upsell"]["ending"] == 1600, m["blocks"]
+    ties(m, "Upsell")
+
+
 def main():
     failed = 0
     for name, fn in CASES:

@@ -142,8 +142,14 @@ save the rows as a JSON list to `.board-kpis/deal_snapshots.json`, then
 - Direct is the Opportunity and Enterprise pipelines with Account Type
   Single Brand or Brand of Brands; Reseller is the same pipelines with Agency
   Reseller or Data Integration Partner; Upsell is the Expansion pipeline.
-- Account Type is read as it is today. Deals get tagged a week or two after
-  they are created, and July only ties this way.
+- Account Type and pipeline are read as they are today, which is how
+  HubSpot's historical snapshot report filters. Deals get tagged a week or
+  two after they are created, and July only ties this way. A deal moved to
+  another pipeline after month end counts in its new block (UDS | Boa Safra
+  | DSP moved to Expansion on October 5, so September Reseller is 173,150
+  and Upsell 78,160, matching the HubSpot report). Stage, amount and
+  open/closed are still as at month end. Once a month is finalized it is
+  not rerun, so later moves do not change it.
 - Deals created in the month are Created. Older deals moving up from
   Qualification are an Increase.
 - Ending is the open deals at month end, and the flows tie to it by
