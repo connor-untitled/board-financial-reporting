@@ -10,8 +10,11 @@ and the live workbook through the Sheets API, and plans a cell-by-cell write:
   across;
 - Churn Inputs: the cancellations draft_workbook.py appended, added under the
   live sheet's last row;
+- the Notes column right of the newest month: the draft's business
+  commentary for this report, one line per changed row, and the same text
+  as a note on the row's cell in the report's first month;
 - a Board Notes tab: the draft's Board Notes rows as a section for this
-  report, and a note on every rebased cell.
+  report (the detailed change log).
 
 July and earlier are never written. A live formula that differs from the
 draft (the sheet carries some formulas ahead into future months, such as the
@@ -84,10 +87,45 @@ def same(live, draft):
 
 
 def months_in(draft_wb):
-    """Reported months: the main tab's columns after July that the draft filled."""
+    """Reported months: the main tab's columns after July that the draft
+    filled, up to the Notes column."""
     ws = draft_wb[D.MAIN]
-    return [c for c in range(D.TEMPLATE_COL + 1, ws.max_column + 1)
-            if any(ws.cell(r, c).value is not None for r in range(6, ws.max_row + 1))]
+    cols = []
+    for c in range(D.TEMPLATE_COL + 1, ws.max_column + 1):
+        if ws.cell(5, c).value == D.NOTES_HEADER:
+            break
+        if any(ws.cell(r, c).value is not None for r in range(6, ws.max_row + 1)):
+            cols.append(c)
+    return cols
+
+
+def draft_commentary(draft_wb, cols):
+    ws = draft_wb[D.MAIN]
+    c = cols[-1] + 1
+    assert ws.cell(5, c).value == D.NOTES_HEADER, "no Notes column right of the newest month"
+    return {r: ws.cell(r, c).value for r in range(6, ws.max_row + 1) if ws.cell(r, c).value}
+
+
+def plan_commentary(sheet, cols, commentary, rows):
+    """(where the live Notes column is, cells to write there). Last report's
+    Notes column moves right ahead of the new months; its old lines are
+    cleared where this report has none (they stay in Board Notes)."""
+    live = read(sheet, ["%s!%s5:%s5" % (quote(D.MAIN), col_letter(D.TEMPLATE_COL + 1),
+                                        col_letter(sheet_ids(sheet)[D.MAIN]["gridProperties"]["columnCount"]))])[0]
+    found = None
+    for i, v in enumerate(live[0] if live else []):
+        if v == D.NOTES_HEADER:
+            found = D.TEMPLATE_COL + 1 + i
+            break
+    target = cols[-1] + 1
+    old = {}
+    if found:
+        got = read(sheet, ["%s!%s1:%s%d" % (quote(D.MAIN), col_letter(found), col_letter(found), rows)])[0]
+        old = {r + 1: v[0] for r, v in enumerate(got) if v and v[0] and r + 1 > 5}
+    cells = [("%s5" % col_letter(target), D.NOTES_HEADER)]
+    cells += [("%s%d" % (col_letter(target), r), t) for r, t in commentary.items()]
+    cells += [("%s%d" % (col_letter(target), r), "") for r in old if r not in commentary]
+    return found, cells
 
 
 def read(sheet, ranges, render="FORMULA"):
@@ -150,13 +188,9 @@ def plan_churn(sheet, rows):
     return last, out, len(rows) - len(new)
 
 
-def rebase_notes(sources):
-    """[(main tab cell, note)] for every rebased cell on the Sources tab."""
-    out = []
-    for month, ref, metric, value, source, detail in sources:
-        if "(rebase)" in str(source) and "!" not in str(ref):
-            out.append((ref, "Rebase, %s: %s. %s" % (month, source.replace(" (rebase)", ""), detail)))
-    return out
+def cell_notes(commentary, cols):
+    """[(main tab cell, note)]: the commentary on the row's cell in the report's first month."""
+    return [("%s%d" % (col_letter(cols[0]), r), t) for r, t in commentary.items()]
 
 
 def board_rows(draft_wb, label, support_link=None):
@@ -166,7 +200,7 @@ def board_rows(draft_wb, label, support_link=None):
     return [[label]] + link + rows + [[]]
 
 
-def markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped):
+def markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped, notes_col=None):
     lines = ["# Sheet write plan", "",
              "Columns: %s. Cells to write: %d. Conflicts: %d." % (
                  ", ".join(col_letter(c) for c in cols), len(writes), len(conflicts)), ""]
@@ -186,6 +220,11 @@ def markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped):
     lines += ["- row %d: %s" % (i, r) for i, r in churn[1]]
     if skipped:
         lines.append("- %d already on the live tab, skipped" % skipped)
+    if notes_col:
+        found, cells = notes_col
+        lines += ["", "## Notes column", "",
+                  "Live Notes column: %s." % (col_letter(found) if found else "none yet")]
+        lines += ["- %s: %s" % c for c in cells]
     lines += ["", "## Cell notes", ""] + ["- %s: %s" % n for n in notes]
     lines += ["", "## Board Notes tab", "", "%d rows, starting with: %s" % (len(board), board[0][0])]
     return "\n".join(lines)
@@ -237,9 +276,16 @@ def changed_history(before, after):
     return out
 
 
-def write(sheet, cols, writes, churn, notes, board):
+def write(sheet, cols, writes, churn, notes, board, notes_col):
     props = sheet_ids(sheet)
     requests = []
+    found, notes_cells = notes_col
+    if found and found <= cols[-1]:
+        # Last report's Notes column sits where the new months go: insert the
+        # new months' columns before it, so it moves right.
+        requests.append({"insertDimension": {"range": {
+            "sheetId": props[D.MAIN]["sheetId"], "dimension": "COLUMNS",
+            "startIndex": found - 1, "endIndex": cols[-1]}, "inheritFromBefore": True}})
     # Room for the new months, then July's formats across.
     for tab in COLUMN_TABS:
         p = props[tab]
@@ -270,12 +316,15 @@ def write(sheet, cols, writes, churn, notes, board):
         sheet.call("POST", ":batchUpdate", json={"requests": requests})
 
     data = [{"range": "%s!%s" % (quote(t), ref), "values": [[v]]} for t, ref, v in writes]
+    data += [{"range": "%s!%s" % (quote(D.MAIN), ref), "values": [[v]]} for ref, v in notes_cells]
     data += [{"range": "%s!A%d:%s%d" % (quote(D.CHURN), i, col_letter(CHURN_COLS), i), "values": [r]}
              for i, r in rows]
-    existing = read(sheet, ["%s!A1:A" % quote(NOTES_TAB)])[0]
-    start = len(existing) + (2 if existing else 1)
-    data.append({"range": "%s!A%d" % (quote(NOTES_TAB), start),
-                 "values": [[("" if v is None else v) for v in r] for r in board]})
+    existing = read(sheet, ["%s!A1:A" % quote(NOTES_TAB)])[0] if NOTES_TAB in props else []
+    report = board[0][0].split(",")[0]
+    if not any(r and str(r[0]).startswith(report) for r in existing):
+        start = len(existing) + (2 if existing else 1)
+        data.append({"range": "%s!A%d" % (quote(NOTES_TAB), start),
+                     "values": [[("" if v is None else v) for v in r] for r in board]})
     sheet.call("POST", "/values:batchUpdate", json={"valueInputOption": "USER_ENTERED", "data": data})
 
     main = sheet_ids(sheet)[D.MAIN]["sheetId"]
@@ -333,15 +382,16 @@ def main():
 
     writes, replaced, conflicts = plan_columns(sheet, draft_wb, cols)
     churn = plan_churn(sheet, churn_rows(draft_wb))
-    sources = [[c.value for c in r] for r in draft_wb["Sources"].iter_rows(min_row=2) if r[1].value]
-    notes = rebase_notes(sources)
+    commentary = draft_commentary(draft_wb, cols)
+    notes_col = plan_commentary(sheet, cols, commentary, draft_wb[D.MAIN].max_row)
+    notes = cell_notes(commentary, cols)
     names = [dt.date(2023 + (c - 2 + 6) // 12, (c - 2 + 6) % 12 + 1, 1).strftime("%B %Y") for c in cols]
     label = "Report: %s, written %s" % (" to ".join(dict.fromkeys([names[0], names[-1]])), dt.date.today())
     board = board_rows(draft_wb, label, config.get("support_links", {}).get(label.split(",")[0]))
     last, rows, skipped = churn
 
     with open(w.path(PLAN), "w") as f:
-        f.write(markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped))
+        f.write(markdown(cols, writes, replaced, conflicts, churn, notes, board, skipped, notes_col))
     print("%d cells (%d replace a live formula), %d Churn Inputs rows, %d cell notes, %d Board Notes rows, "
           "%d conflicts -> %s" % (len(writes), len(replaced), len(rows), len(notes), len(board),
                                    len(conflicts), w.path(PLAN)))
@@ -354,7 +404,7 @@ def main():
         return 0
     rows = draft_wb[D.MAIN].max_row
     before = history(sheet, rows)
-    write(sheet, cols, writes, churn, notes, board)
+    write(sheet, cols, writes, churn, notes, board, notes_col)
     print("written")
     moved = changed_history(before, history(sheet, rows))
     for tab, ref, a, b in moved:

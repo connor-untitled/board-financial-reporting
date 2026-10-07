@@ -40,6 +40,7 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter as col_letter
 
 import workspace as w
+from mrr import shift
 
 MAIN = "Revised KPI Sheet Draft - V2"
 CHURN = "Churn Inputs"
@@ -304,6 +305,81 @@ def board_notes(ws, extra=()):
     return rows
 
 
+# Board-facing commentary for the report: one line per row whose calculation
+# or starting point changed, in business terms. It goes in a Notes column
+# right of the newest month, and as a note on the cell where the change
+# starts. The Board Notes tab keeps the detailed change log.
+NOTES_HEADER = "Notes"
+TTM_COMMENT = "Trailing 12-month figure now covers exactly 12 months (it previously included 13)."
+# Specific to one report: {last month of the report: {row: text}}.
+REPORT_COMMENTARY = {
+    "2026-09": {
+        157: "One $1,600 UDS deal was reclassified from Reseller to Upsell in early October; it is shown in Upsell for August and September.",
+        204: "Includes one $1,600 UDS deal reclassified from Reseller in early October.",
+    },
+}
+REBASE_REASONS = {
+    "Direct": "mainly 2024 cancellations that were never taken out of reported MRR",
+    "Reseller": "reseller upgrades and client accounts that were not previously reported",
+}
+
+
+def commentary(stripe, pipeline, export_ws):
+    """{row: text} for the report covering stripe["months"]."""
+    first, last = stripe["months"][0], stripe["months"][-1]
+    name = lambda m: dt.datetime.strptime(m, "%Y-%m").strftime("%B")
+    prior = name(shift(first["month"], -1))
+    out = {}
+    if first["month"] == shift_from_template():
+        for ch, row in (("Direct", 81), ("Reseller", 140)):
+            if "rebase_adjustment" in first:
+                was = first["beginning"][ch] - first["rebase_adjustment"][ch]
+                out[row] = ("%s opens at $%s, the amount billed at %s month end. %s was reported at $%s; the "
+                            "difference is %s." % (name(first["month"]), "{:,.0f}".format(first["beginning"][ch]),
+                                                   prior, prior, "{:,.0f}".format(was), REBASE_REASONS[ch]))
+        if "customer_rebase_adjustment" in first:
+            for ch, row in (("Direct", 108), ("Reseller", 165)):
+                now = first["customers"][ch]["beginning"]
+                out[row] = "%s opens at %d paying %s customers (%s was reported at %d)." % (
+                    name(first["month"]), now, ch, prior, now - first["customer_rebase_adjustment"][ch])
+        p = next((x for x in pipeline if x["month"] == first["month"]), None)
+        if p:
+            for blk, row in (("Direct", 101), ("Reseller", 158), ("Upsell", 205)):
+                out[row] = ("%s opens at the %d deals actually open at %s month end; the previous count carried "
+                            "closed or removed deals forward." % (name(first["month"]), p["counts"][blk]["beginning"], prior))
+            for row in (102, 159, 206):
+                out[row] = "Now includes existing deals that moved from qualification into the active pipeline during the month."
+        rates = ", ".join("%s %.1f%%" % (name(m["month"]), 100 * (m["inputs"]["Reseller"]["contraction"]
+                          + m["inputs"]["Reseller"]["cancellation"]) / m["ending"]["Reseller"]) for m in stripe["months"])
+        out[185] = "Reseller revenue churn is now calculated each month (it showed 0%% since January). Gross churn: %s." % rates
+        out[186] = "Reseller net revenue churn is now calculated each month (it showed 0% since January)."
+        typed, parts = export_ws.cell(51, TEMPLATE_COL).value, [export_ws.cell(r, TEMPLATE_COL).value for r in (109, 166)]
+        out[51] = "Now the sum of new Direct and new Reseller customers."
+        if all(isinstance(v, (int, float)) for v in [typed] + parts) and typed != sum(parts):
+            out[51] += " %s was entered as %d; the detail behind it shows %d." % (prior, typed, sum(parts))
+        out[44] = "Each month now counts marketing spend through that month only; previously later months' spend could flow into earlier months."
+        for row in TTM_ROWS:
+            out[row] = TTM_COMMENT
+    out[216] = "Salaries are held at %s levels until the payroll update." % name(shift(shift_from_template(), -1))
+    out.update(REPORT_COMMENTARY.get(last["month"], {}))
+    return dict(sorted(out.items()))
+
+
+def shift_from_template():
+    """The month right after the last hand-typed one (column AL)."""
+    y, m = divmod(TEMPLATE_COL - 2 + 6, 12)
+    return shift("%04d-%02d" % (2023 + y, m + 1), 1)
+
+
+def put_commentary(d, notes, after_col):
+    c = after_col + 1
+    d.ws.cell(5, c).value = NOTES_HEADER
+    d.ws.cell(5, c).font = Font(bold=True)
+    for row, text in notes.items():
+        d.ws.cell(row, c).value = text
+    d.ws.column_dimensions[col_letter(c)].width = 80
+
+
 CAC = "CAC Inputs"
 CAC_SOURCES = {
     13: "Ramp, Google Ads charges; a charge on the 1st counts in the month before",
@@ -458,6 +534,8 @@ def main():
             d.gap(month, 216, "CAC Inputs not filled: ramp_spend.json has no charges dated after this month, so ramp_cac.py did not report it")
         gaps(d, month)
 
+    last_col = max(column(m["month"]) for m in stripe["months"])
+    put_commentary(d, commentary(stripe, pipeline, openpyxl.load_workbook(w.path(EXPORT))[MAIN]), last_col)
     ws = ledger_tab(wb, "Board Notes", ["Item", "Type", "What changed", "Effective",
                                         "July 2026 as published", "July 2026 under the new method"], board_notes(d.ws, d.notes))
     for col, width in (("A", 48), ("B", 18), ("C", 90), ("D", 14), ("E", 22), ("F", 28)):

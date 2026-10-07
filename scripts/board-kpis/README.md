@@ -234,8 +234,18 @@ Review the plan, then run it again with `BOARD_KPIS_WRITE=1`. It needs
 
 - Written: the reported months' columns on the main tab and CAC Inputs
   (formulas stay formulas, July's formatting is copied across), the new
-  Churn Inputs rows under the last one, a section on the Board Notes tab,
-  and a cell note on every rebased cell.
+  Churn Inputs rows under the last one, and a section on the Board Notes tab.
+- Board commentary: a Notes column right of the newest month carries one
+  business-language line per row whose calculation or starting point changed
+  in this report, and the same line is a note on that row's cell. Next month
+  the column moves right ahead of the new month and its old lines are
+  cleared; every report's detail stays on the Board Notes tab. The lines come
+  from `commentary()` in draft_workbook.py; one-off lines for a report go in
+  `REPORT_COMMENTARY`.
+- Row 44 (Running Cost per Conversion) through July 2026 holds the values as
+  reported at the time. The original formulas summed later months' spend, so
+  they moved once August was entered; they were replaced by their published
+  values on 2026-10-07, with a note on the cells.
 - Never written: July or any earlier column.
 - A live formula that differs from the draft is replaced and listed in the
   plan. A live typed value that differs stops the run as a conflict.
