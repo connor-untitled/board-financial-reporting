@@ -26,6 +26,7 @@ services MRR that rows 13-14 currently hard-code as `9600`.
 | `test_pipeline.py` | The roll-forward rules, one case each |
 | `ramp_cac.py` | CAC Inputs paid-media and contractor lines from Ramp charges |
 | `test_ramp_cac.py` | The CAC rules, one case each |
+| `write_sheet.py` | Writes the reviewed months into the live sheet: dry run by default, `BOARD_KPIS_WRITE=1` to write |
 | `draft_workbook.py` | A review copy of the workbook with the reported months filled, plus Sources and ledger tabs |
 
 ```bash
@@ -223,6 +224,25 @@ From August 2026 the new months also get two corrected formulas:
 - Running Cost per Conversion (row 44) sums CAC Inputs through the month
   itself. July's published formula sums eight months ahead (to `AT`), so it
   picks up later spend as soon as it is entered.
+
+## Writing to the live sheet
+
+Once the review workbook is signed off, `python3 scripts/board-kpis/write_sheet.py`
+plans the write and saves it to `.board-kpis/sheet_plan.md`; nothing is sent.
+Review the plan, then run it again with `BOARD_KPIS_WRITE=1`. It needs
+`WINS_SA_KEY`, and the workbook shared with the service account as an Editor.
+
+- Written: the reported months' columns on the main tab and CAC Inputs
+  (formulas stay formulas, July's formatting is copied across), the new
+  Churn Inputs rows under the last one, a section on the Board Notes tab,
+  and a cell note on every rebased cell.
+- Never written: July or any earlier column.
+- A live formula that differs from the draft is replaced and listed in the
+  plan. A live typed value that differs stops the run as a conflict.
+- After writing, the main tab's calculated values are read back and compared
+  with the draft as LibreOffice calculates it.
+- The working-paper tabs go to `.board-kpis/kpi_support.xlsx`, filed in
+  Drive beside the sheet; its link goes in config.json `support_links`.
 
 ## Reporting conventions
 

@@ -45,6 +45,8 @@ MAIN = "Revised KPI Sheet Draft - V2"
 CHURN = "Churn Inputs"
 EXPORT = "kpi_export.xlsx"
 OUT = "kpi_draft.xlsx"
+SUPPORT = "kpi_support.xlsx"  # the working-paper tabs alone, filed beside the live sheet
+SUPPORT_TABS = ("Sources", "MRR Ledger", "Pipeline Ledger", "CAC Variance", "Ending MRR Recon", "CAC Excluded")
 TEMPLATE_COL = 38  # AL, July 2026: the last month typed by hand
 SHORT_CHURN_DAYS = 90  # "<3 months", which reproduces June (3 Direct) and July (1 Reseller)
 
@@ -496,6 +498,11 @@ def main():
                 for e in cac["excluded"]])
     trim(wb)
     wb.save(w.path(OUT))
+    support = openpyxl.load_workbook(w.path(OUT))
+    for ws in list(support):
+        if ws.title not in SUPPORT_TABS:
+            support.remove(ws)
+    support.save(w.path(SUPPORT))
     print(w.path(OUT), len(d.sources), "cells documented")
 
 

@@ -1,6 +1,7 @@
 {
   "_comment": "See README.md for what each key means and when to change it.",
   "stripe_account": "acct_1DW76WDMe00hiO0k",
+  "kpi_spreadsheet_id": "1mvj8bI19LBMkMon6j11YRNg2giuzzfZWjTzYJ91ZX4o",
   "history_start": "2025-06-01",
   "first_month": "2026-08",
   "rebase": {
