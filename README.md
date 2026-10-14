@@ -6,6 +6,7 @@ the outsourced bookkeepers from Stripe.
 | Routine | Skill | Scripts | What it produces |
 | --- | --- | --- | --- |
 | `rev-rec-monthly` | `.claude/skills/rev-rec-monthly/` | `scripts/rev-rec/` | Last month's tab in the **Subscription Rev Rec** workbook, filled on the 2nd business day, plus a Slack DM to Connor with the total and anything that needs a person |
+| `board-dashboard` | (run by hand for now) | `scripts/board-dashboard/` | The data files behind the Untitled Board Reporting dashboard, built from the KPI sheet, the Wins tabs and the churn log, plus the page source and its live Metabase queries |
 | `board-kpis` | `.claude/skills/board-kpis/` | `scripts/board-kpis/` | The MRR movement inputs for the board KPI sheet (New, Expansion, Reactivation, Contraction, Cancellation for Direct and Reseller) and a per-customer ledger, sent to Connor for review. Draft only: it does not write to the KPI sheet yet |
 
 `scripts/common/sheets.py` is the Google Sheets client both use. It signs its
