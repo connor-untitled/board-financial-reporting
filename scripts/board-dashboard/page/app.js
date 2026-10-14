@@ -5,6 +5,11 @@
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
+  // Customer-level churn starts with the Stripe history (stripe_churn.py); a range reaching earlier is labelled as cut short.
+  const CHURN_FROM = '2025-01', CHURN_DETAIL = ['c-churnsum', 'c-reasons', 'c-churnlog'];
+  const churnCut = (cid, cards) => (cards || CHURN_DETAIL).includes(cid) && selMonths().some((m) => m < CHURN_FROM);
+  // Cards whose note names Stripe cancellations, though their own figures come from the KPI sheet.
+  const CHURN_NOTE = CHURN_DETAIL.concat(['c-retention', 'c-bridge']);
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
   const id = (x) => (state.data === 'frozen' && LIVE.includes(x) ? x + '_frozen' : x);
@@ -1492,8 +1497,13 @@
       const tt = c.querySelector('.ub-card-title'); if (!tt.dataset.name) tt.dataset.name = tt.textContent;
       const per = c.querySelector('.ub-card-period'); if (per && def.kind !== 'static') per.textContent = periodText(def.kind);
       if (per && TAKE[c.id]) per.textContent = tt.dataset.name + (per.textContent && def.kind !== 'static' ? ' · ' + periodText(def.kind) : '');
+      if (per && churnCut(c.id)) per.textContent += ' · churn detail from January 2025';
       const t = def.draw(body(c.id), null); if (t) c._table = t;
-      const ch = c.querySelector('.ub-changed'); if (ch) { const n = def.note(); ch.textContent = n; ch.hidden = !n; }
+      const ch = c.querySelector('.ub-changed'); if (ch) {
+        let n = def.note();
+        if (churnCut(c.id, CHURN_NOTE)) n = (n ? n + ' ' : '') + 'Customer-level churn starts in January 2025, when the Stripe history begins; months before that are not included.';
+        ch.textContent = n; ch.hidden = !n;
+      }
       if (TAKE[c.id]) { let t = ''; try { t = TAKE[c.id](); } catch (e) { t = ''; } tt.textContent = t || tt.dataset.name; }
     });
   }
