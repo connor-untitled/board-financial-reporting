@@ -1,7 +1,7 @@
 // Page: controls, card registry (draw + "what changed" note + sources), copy-to-deck wiring.
 (function () {
   const { B, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
-  const state = { sel: 'Q3', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
+  const state = { sel: 'Q3O', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open'];
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
@@ -12,6 +12,7 @@
   const card = (c) => document.getElementById(c);
   const body = (c) => card(c).querySelector('.ub-body');
   const S = () => spec(state.sel, state.cmp);
+  const selMonths = () => S().months || WIN_MONTHS[S().win];
   const lastOf = (w) => (WIN_MONTHS[w] || []).slice(-1)[0];
   const TREND = (m) => m >= '2025-07' && m <= '2026-09';
   const up = (a, b) => (a >= b ? 'up' : 'down');
@@ -69,10 +70,10 @@
 
   // ---------- monthly series for sparklines: the 12 months ending with the period's last closed month
   const monthsTo = (end, n) => { const out = []; let d = new Date(end + '-01T00:00:00Z'); for (let i = 0; i < n; i++) { out.unshift(d.toISOString().slice(0, 7)); d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)); } return out; };
-  const sparkEnd = () => { const s = S(); return state.sel === 'Oct' ? '2026-09' : lastOf(s.win); };
+  const sparkEnd = () => { const s = S(); return lastOf(s.win); };
   const kSeries = (kpi, f) => monthsTo(sparkEnd(), 12).map((m) => { const k = pick(kpi, (x) => x.month === m); return k ? f(k) : null; });
   const rSeries = (rev, f) => monthsTo(sparkEnd(), 12).map((m) => { const r = pick(rev, (x) => x.month === m); return r ? f(r) : null; });
-  const bSeries = (bk, f) => monthsTo(state.sel === 'Oct' ? '2026-10' : sparkEnd(), 12).map((m) => f(bk.filter((b) => b.category === 'Software' && b.date.startsWith(m))));
+  const bSeries = (bk, f) => monthsTo(state.sel === 'Q3O' ? '2026-10' : sparkEnd(), 12).map((m) => f(bk.filter((b) => b.category === 'Software' && b.date.startsWith(m))));
   const recurring = (r) => r.subscription + r.consumption + r.dsp + r.mail + r.services_retainer;
 
   // ---------- card registry
@@ -610,7 +611,7 @@
       const x = d3.scaleBand(data.map((q) => q.month), [left + 4, w - right]).padding(0.24);
       yAxis(svg, y, left, w - right, fmt.n);
       y2.ticks(4).forEach((t) => svg.append('text').attr('x', w - right + 8).attr('y', y2(t)).attr('dy', '0.32em').attr('class', 'ub-tick').attr('fill', B.mint).text(fmt.usd(t)));
-      const hl = state.sel === 'Oct' ? ['2026-10'] : WIN_MONTHS[s.win];
+      const hl = selMonths();
       const tip = tooltip(el), bw = x.bandwidth(), every = Math.ceil(data.length / Math.max(2, Math.floor((w - left - right) / 50)));
       data.forEach((q, i) => {
         const on = hl.includes(q.month), g = svg.append('g').attr('opacity', on ? 1 : 0.5), c = q.month === '2026-10' ? B.lav : B.deep;
@@ -696,7 +697,7 @@
     kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const s = S(), ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[s.win];
+      const s = S(), ms = selMonths();
       const r = d.churn_log.filter((x) => ms.includes(x.churn_month));
       const data = d3.rollups(r, (v) => ({ mrr: d3.sum(v, (x) => x.mrr), n: v.length }), (x) => x.reason_category).map(([cat, v]) => ({ cat, ...v })).sort((a, b) => (a.cat === 'Not recorded') - (b.cat === 'Not recorded') || b.mrr - a.mrr);
       hbars(el, opt, data, { label: (q) => q.cat, value: (q) => q.mrr, color: (q) => (q.cat === 'Not recorded' ? B.prior : B.bad), fmtv: (v) => fmt.usd(v), sub: (q) => `${q.n} customer${q.n === 1 ? '' : 's'}` });
@@ -709,7 +710,7 @@
     kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
     draw(el) {
       const d = need(el, this.data()); if (!d) return null;
-      const s = S(), ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[s.win];
+      const s = S(), ms = selMonths();
       const r = d.churn_log.filter((x) => ms.includes(x.churn_month)).sort((a, b) => b.mrr - a.mrr);
       const tb = card('c-churnlog').querySelector('tbody');
       const cells = (x) => [x.customer, fmt.month(x.churn_month), x.channel, fmt.usdFull(x.mrr), x.reason_category, x.reason];
@@ -718,8 +719,8 @@
     },
     note() {
       const log = rows('churn_log'); if (!log) return '';
-      const s = S(), ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[s.win], r = log.filter((x) => ms.includes(x.churn_month));
-      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${state.sel === 'Oct' ? 'September and October' : WIN_LABEL[s.win]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}. Stripe also shows Ticketsauce (September, $500), which is not in the log yet.`;
+      const s = S(), ms = selMonths(), r = log.filter((x) => ms.includes(x.churn_month));
+      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${s.months ? 'July through October to date' : WIN_LABEL[s.win]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}. Stripe also shows Ticketsauce (September, $500), which is not in the log yet.`;
     },
   };
 
@@ -733,7 +734,7 @@
       const data = months.map((m) => { const o = { month: m }; SRC.forEach(([x]) => { o[x] = d3.sum(mq.filter((r) => r.month === m && r.source === x), (r) => +r.mqls); }); return o; });
       const SR = SRC.filter(([x]) => data.some((q) => q[x])).map(([x, c]) => ({ key: x, label: x, color: c }));
       legend(el, SR.map((x) => [x.color, x.label]));
-      stackedBars(el, { ...opt, rows: data, series: SR, highlight: state.sel === 'Oct' ? ['2026-10'] : WIN_MONTHS[s.win], yfmt: fmt.n, lab: fmt.n, height: 320, xlab: (m) => (m === '2026-10' ? 'Oct (MTD)' : fmt.month(m)) });
+      stackedBars(el, { ...opt, rows: data, series: SR, highlight: selMonths(), yfmt: fmt.n, lab: fmt.n, height: 320, xlab: (m) => (m === '2026-10' ? 'Oct (MTD)' : fmt.month(m)) });
       return { columns: ['Month'].concat(SR.map((x) => x.label), ['Total']), rows: data.map((q) => [fmt.monthLong(q.month)].concat(SR.map((x) => q[x.key]), [d3.sum(SR, (x) => q[x.key])])) };
     },
     note() {
@@ -876,7 +877,7 @@
     kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const s = S(), ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[s.win].filter((m) => m >= '2026-01');
+      const s = S(), ms = selMonths().filter((m) => m >= '2026-01');
       const r = d.churn_log.filter((x) => ms.includes(x.churn_month));
       const roll = (key, val) => d3.rollups(r, val, key).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
       const byMonth = ms.map((m) => ({ label: fmt.month(m), mrr: d3.sum(r.filter((x) => x.churn_month === m), (x) => x.mrr), n: r.filter((x) => x.churn_month === m).length }));
@@ -906,7 +907,7 @@
     },
     note() {
       const log = rows('churn_log'); if (!log) return '';
-      const s = S(), ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[s.win].filter((m) => m >= '2026-01');
+      const s = S(), ms = selMonths().filter((m) => m >= '2026-01');
       const r = log.filter((x) => ms.includes(x.churn_month)), dir = r.filter((x) => x.channel === 'Direct');
       return `Same layout as the May deck's churn summary, from the churn log. Direct accounts are ${d3.format('.0%')(r.length ? dir.length / r.length : 0)} of churned customers and ${d3.format('.0%')(d3.sum(r, (x) => x.mrr) ? d3.sum(dir, (x) => x.mrr) / d3.sum(r, (x) => x.mrr) : 0)} of churned MRR.`;
     },
@@ -1070,11 +1071,11 @@
       return `Paying resellers grew from ${c.customers_ending} to ${r.customers_ending}`; },
     'c-retention': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === 'Total');
       return `${fmt.rate(m.gross_retention)} of MRR kept each month on average; ${fmt.rate(m.net_retention)} with expansion`; },
-    'c-churnsum': () => { const log = rows('churn_log'); if (!log) return ''; const ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[S().win].filter((m) => m >= '2026-01');
+    'c-churnsum': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths().filter((m) => m >= '2026-01');
       const r = log.filter((x) => ms.includes(x.churn_month)); return `${r.length} customers and ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR churned, mostly small Direct accounts`; },
     'c-churnmrr': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       const l = m.cancellation + m.contraction, lc = c.cancellation + c.contraction; return `Lost MRR ${fmt.usd(l)}, ${l <= lc ? 'down' : 'up'} ${fmt.usd(Math.abs(l - lc))} vs ${WIN_LABEL[s.winComp]}`; },
-    'c-reasons': () => { const log = rows('churn_log'); if (!log) return ''; const ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[S().win];
+    'c-reasons': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths();
       const by = d3.rollups(log.filter((x) => ms.includes(x.churn_month) && x.reason_category !== 'Not recorded'), (v) => d3.sum(v, (x) => x.mrr), (x) => x.reason_category).sort((a, z) => z[1] - a[1]);
       return by.length ? `${by[0][0]} is the leading reason, at ${fmt.usd(by[0][1])} of lost MRR` : ''; },
     'c-mqls': () => { const mq = rows(id('mqls')); if (!mq) return ''; const ms = WIN_MONTHS[S().win], t = d3.sum(mq.filter((r) => ms.includes(r.month)), (r) => +r.mqls);

@@ -43,7 +43,7 @@ gloss=[('MRR (subscription)','Monthly recurring revenue from platform licenses a
 gl='<div class="ub-card" id="c-glossary"><div class="ub-card-head"><div><h3 class="ub-card-title">Glossary</h3><p class="ub-card-period">Definitions used on every card</p></div></div><dl class="ub-gloss">'+''.join(f'<div><dt>{html.escape(a)}</dt><dd>{html.escape(b)}</dd></div>' for a,b in gloss)+'</dl></div>'
 internal=card('c-sources','Sources and refresh','snapshot_info',img=False,tbl=('source',[('label','Source'),('as_of','As of'),('covers','Covers'),('refresh','Refresh')]))+card('c-checks','Data checks behind this dashboard','checks',img=False,tbl=('item',[('check','Check'),('item','Item'),('status','Status'),('finding','Finding')]))
 tabs=list(pages.items())+[('glossary',['Glossary',gl]),('internal',['Internal: data and sources','<p class="ub-internal-note">For the team only. Nothing on this tab goes in the board deck.</p>'+internal])]
-css=open(__import__('os').path.join(__import__('os').path.dirname(__file__),'style.css')).read()
+css=open('style.css').read()
 out=f'''<style>
 {css}
 </style>
@@ -56,7 +56,7 @@ out=f'''<style>
     <p class="ub-asof">Data as of October 13, 2026. Sources and refresh details are on the Internal tab and in the Sources panel.</p>
     <p class="ub-closenote" hidden></p>
     <div class="ub-controls">
-      <div class="ub-control"><span class="ub-control-label">Period</span>{seg('ub-seg-period','Period',[('Q2','Q2 2026'),('Q3','Q3 2026'),('Oct','October to date'),('YTD','Year to date')])}</div>
+      <div class="ub-control"><span class="ub-control-label">Period</span>{seg('ub-seg-period','Period',[('Q2','Q2 2026'),('Q3O','Q3 + October to date'),('YTD','Year to date')])}</div>
       <div class="ub-control"><span class="ub-control-label">Compare with</span>{seg('ub-seg-cmp','Compare with',[('prior','Prior period'),('yoy','Same period last year')])}</div>
       <div class="ub-control"><span class="ub-control-label">Live sources</span>{seg('ub-seg-data','Live sources',[('frozen','Board snapshot, Oct 13'),('live','Live')])}</div>
     </div>
@@ -69,5 +69,5 @@ out=f'''<style>
 <script src="calcs.js"></script>
 <script src="app.js"></script>
 '''
-open(__import__('os').path.join(__import__('os').path.dirname(__file__),'index.html'),'w').write(out)
+open('index.html','w').write(out)
 print(len(out))

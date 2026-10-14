@@ -28,8 +28,9 @@
   const BASE = {
     Q2: { label: 'Q2 2026', book: 'Q2', win: 'Q2', prior: ['Q1', 'Q1'], yoy: ['Q2_25', 'Q2_25'], ec: ['2026-06', '2026-03', '2025-09'] },
     Q3: { label: 'Q3 2026', book: 'Q3', win: 'Q3', prior: ['Q2', 'Q2'], yoy: ['Q3_25', 'Q3_25'], ec: ['2026-09', '2026-06', '2025-09'] },
-    Oct: { label: 'October 2026 to date', book: 'Oct', win: 'Sep', prior: ['SepTD', 'Aug'], yoy: ['Oct_25', 'Sep_25'], ec: ['2026-10', '2026-09', '2025-10'],
-      closeNote: 'October is still open, so MRR, revenue and customer counts show the latest closed month, September.' },
+    Q3O: { label: 'Q3 2026 + October to date', book: 'Q3O', win: 'Q3', prior: ['Q2O', 'Q2'], yoy: ['Q3O_25', 'Q3_25'], ec: ['2026-10', '2026-06', '2025-10'],
+      months: ['2026-07', '2026-08', '2026-09', '2026-10'],
+      closeNote: 'October is still open, so bookings, end clients and churns run through October to date, while MRR, revenue, customer counts and MQLs close at September.' },
     YTD: { label: '2026 year to date', book: 'YTD', win: 'YTD', prior: ['YTD_25', 'YTD_25'], yoy: ['YTD_25', 'YTD_25'], ec: ['2026-09', '2025-09', '2025-09'],
       closeNote: 'Year to date runs January through September for month-close numbers and through the latest signed deal for bookings.' },
   };
@@ -37,7 +38,7 @@
     const b = BASE[sel], c = cmp === 'yoy' || sel === 'YTD' ? b.yoy : b.prior;
     return { ...b, bookComp: c[0], winComp: c[1], ecMonth: b.ec[0], ecComp: cmp === 'yoy' || sel === 'YTD' ? b.ec[2] : b.ec[1] };
   }
-  const WIN_LABEL = { Q1: 'Q1 2026', Q2: 'Q2 2026', Q3: 'Q3 2026', Aug: 'August 2026', Sep: 'September 2026', Oct: 'October 2026 to date', SepTD: 'September 2026, same days',
+  const WIN_LABEL = { Q1: 'Q1 2026', Q2: 'Q2 2026', Q3: 'Q3 2026', Aug: 'August 2026', Sep: 'September 2026', Oct: 'October 2026 to date', SepTD: 'September 2026, same days', Q3O: 'Q3 2026 + October to date', Q2O: 'Q2 2026 + July, same days', Q3O_25: 'Q3 2025 + October, same days',
     YTD: '2026 year to date', Q1_25: 'Q1 2025', Q2_25: 'Q2 2025', Q3_25: 'Q3 2025', Sep_25: 'September 2025', Oct_25: 'October 2025, same days', YTD_25: '2025, same period' };
   const WIN_MONTHS = { Q1: ['2026-01', '2026-02', '2026-03'], Q2: ['2026-04', '2026-05', '2026-06'], Q3: ['2026-07', '2026-08', '2026-09'], Aug: ['2026-08'], Sep: ['2026-09'],
     YTD: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'],
