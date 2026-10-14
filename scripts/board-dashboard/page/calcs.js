@@ -1,5 +1,5 @@
 // Metabase answers: column names plus row arrays, paired into rows.
-['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel', 'churn_reasons'].forEach((id) => dash.loader(id, {
+['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel', 'churn_reasons', 'deck_pipeline'].forEach((id) => dash.loader(id, {
   description: 'Metabase answers with column names and row arrays; this pairs them into rows.',
   fn: ({ answer }) => {
     const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
