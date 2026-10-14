@@ -1,7 +1,7 @@
 // Page: controls, card registry (draw + "what changed" note + sources), copy-to-deck wiring.
 (function () {
-  const { B, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
-  const state = { sel: 'Q3O', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
+  const { B, setTheme, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
+  const state = { theme: 'light', sel: 'Q3O', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split'];
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
@@ -36,15 +36,14 @@
   }
 
   // ---------- shared pieces
-  const REV = [
-    { key: 'subscription', label: 'Subscription', color: B.peri },
-    { key: 'consumption', label: 'Consumption', color: B.sky },
-    { key: 'dsp', label: 'DSP', color: B.mint },
-    { key: 'mail', label: 'Mail', color: B.lav },
-    { key: 'services_retainer', label: 'Services retainer', color: B.deep },
-  ];
-  const REV_ALL = REV.concat([{ key: 'services_projects', label: 'Services projects', color: '#c7c3f7' }]);
-  const SRC = [['Organic search', B.peri], ['Paid search', B.sky], ['AI referrals', B.mint], ['Paid social', B.lav], ['Organic social', B.teal], ['Email marketing', B.deep]];
+  // Series colors are read at draw time so a theme switch repaints them.
+  const REV_DEF = [['subscription', 'Subscription', 'peri'], ['consumption', 'Consumption', 'sky'], ['dsp', 'DSP', 'mint'], ['mail', 'Mail', 'lav'], ['services_retainer', 'Services retainer', 'deep']];
+  const REV = [], REV_ALL = [], SRC = [];
+  function paintSeries() {
+    REV.splice(0, REV.length, ...REV_DEF.map(([key, label, c]) => ({ key, label, color: B[c] })));
+    REV_ALL.splice(0, REV_ALL.length, ...REV, { key: 'services_projects', label: 'Services projects', color: B.soft });
+    SRC.splice(0, SRC.length, ...[['Organic search', 'peri'], ['Paid search', 'sky'], ['AI referrals', 'mint'], ['Paid social', 'lav'], ['Organic social', 'teal'], ['Email marketing', 'deep']].map(([s, c]) => [s, B[c]]));
+  }
   const BLOCK = (b) => (b === 'Upsell' ? 'Expansion (existing customers)' : b === 'Not yet tagged' ? 'Account type not set' : b);
   const winRows = (ds, w, extra) => pick(ds, (r) => r.period === w && (!extra || extra(r)));
   function topChurns(log, months, n) {
@@ -617,7 +616,7 @@
         const on = hl.includes(q.month), g = svg.append('g').attr('opacity', on ? 1 : 0.5), c = q.month === '2026-10' ? B.lav : B.deep;
         g.append('rect').attr('x', x(q.month)).attr('width', bw).attr('y', y(q.end_clients)).attr('height', y(0) - y(q.end_clients)).attr('rx', 3).attr('fill', c);
         if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(q.end_clients) + 14).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', bw > 30 ? 11 : 9).attr('fill', B.fg).text(q.end_clients);
-        if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(0) - 6).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', 9).attr('fill', '#c7c3f7').text(q.resellers);
+        if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(0) - 6).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', 9).attr('fill', B.soft).text(q.resellers);
         if (i % every === 0 || on || i === data.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').attr('font-size', 11).text(q.month === '2026-10' ? 'Oct*' : fmt.month(q.month));
         svg.append('rect').attr('class', 'ub-hit').attr('x', x(q.month)).attr('width', bw).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent')
           .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients', fmt.n(q.end_clients)], [null, 'Resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed'], [null, 'Source', q.src === 'Sheet' ? 'Wins tab as published' : 'Metabase']])).on('mouseleave', () => tip.hide());
@@ -630,7 +629,7 @@
       });
       const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
       callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === '2026-10' ? ', half a month in' : ''}`, { lift: 22 });
-      legend(el, [[B.deep, 'End clients (10+ resolutions)'], ['#c7c3f7', 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, 'October to date']]);
+      legend(el, [[B.deep, 'End clients (10+ resolutions)'], [B.soft, 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, 'October to date']]);
       return { columns: ['Month', 'Reseller end clients', 'Resellers with active clients', 'Consumption revenue', 'Source'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '', q.src === 'Sheet' ? 'Wins tab' : 'Metabase']) };
     },
     note() {
@@ -856,7 +855,7 @@
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), data = d.kpi.filter((k) => TREND(k.month));
-      const SR = [['customers_beginning', 'Beginning', '#c7c3f7'], ['customers_new', 'New', B.sky], ['customers_churned', 'Churned', B.bad], ['customers_ending', 'Ending', B.deep]];
+      const SR = [['customers_beginning', 'Beginning', B.soft], ['customers_new', 'New', B.sky], ['customers_churned', 'Churned', B.bad], ['customers_ending', 'Ending', B.deep]];
       const { w, h } = size(el, opt, 320), svg = svgFor(el, w, h);
       const y = d3.scaleLinear([-d3.max(data, (k) => k.customers_churned) * 1.4, d3.max(data, (k) => k.customers_ending) * 1.15], [h - 26, 12]).nice();
       const left = 8 + d3.max(y.ticks(5), (t) => textW(svg, fmt.n(t)));
@@ -1147,6 +1146,8 @@
 
   // ---------- controls
   const bind = (sel, key) => $$(sel + ' button').forEach((b) => b.addEventListener('click', () => { state[key] = b.dataset.v; render(); }));
+  try { const t = localStorage.getItem('ub-theme'); if (t === 'light' || t === 'dark') state.theme = t; } catch (e) { /* storage blocked: keep the default */ }
+  $$('.ub-seg-theme button').forEach((b) => b.addEventListener('click', () => { state.theme = b.dataset.v; try { localStorage.setItem('ub-theme', state.theme); } catch (e) { /* not saved */ } render(); }));
   bind('.ub-seg-period', 'sel'); bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
@@ -1167,6 +1168,9 @@
 
   function render() {
     const s = S();
+    setTheme(state.theme); paintSeries();
+    document.getElementById('ub').dataset.theme = state.theme;
+    $$('.ub-seg-theme button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.theme));
     markSources();
     $$('.ub-seg-period button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.sel));
     $$('.ub-seg-cmp button').forEach((b) => { b.setAttribute('aria-pressed', b.dataset.v === state.cmp); b.disabled = state.sel === 'YTD' && b.dataset.v === 'prior'; });

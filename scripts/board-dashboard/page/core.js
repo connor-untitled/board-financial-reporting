@@ -1,11 +1,22 @@
 // Shared helpers: brand palette, formats, period windows, chart primitives with data labels, and copy-to-deck.
 (function () {
-  const B = {
-    bg: '#020617', card: '#0b1024', line: '#1d2545', grid: '#151c38',
-    fg: '#f8fafc', muted: '#94a3b8', faint: '#64748b',
-    peri: '#9691f4', mint: '#85ffe8', sky: '#77d4fd', lav: '#d8b4fe', teal: '#99f6e4', deep: '#736fc2',
-    prior: '#4a4f72', good: '#85ffe8', bad: '#fb7185', amber: '#fcd34d',
+  // Two palettes. Dark is the deck; light follows the brand on a white page. setTheme swaps B in place, so charts drawn after it pick up the new colors.
+  const PAL = {
+    dark: {
+      bg: '#020617', card: '#0b1024', line: '#1d2545', grid: '#151c38',
+      fg: '#f8fafc', muted: '#94a3b8', faint: '#64748b',
+      peri: '#9691f4', mint: '#85ffe8', sky: '#77d4fd', lav: '#d8b4fe', teal: '#99f6e4', deep: '#736fc2', soft: '#c7c3f7',
+      prior: '#4a4f72', good: '#85ffe8', bad: '#fb7185', amber: '#fcd34d',
+    },
+    light: {
+      bg: '#ffffff', card: '#ffffff', line: '#e2e5f0', grid: '#eef0f7',
+      fg: '#0b1024', muted: '#525a75', faint: '#7a8199',
+      peri: '#6b65e6', mint: '#0e9f8a', sky: '#1f8fd1', lav: '#9b6be0', teal: '#0d9488', deep: '#4b46a8', soft: '#8a91b3',
+      prior: '#aeb4cf', good: '#0e9f8a', bad: '#e11d48', amber: '#b45309',
+    },
   };
+  const B = { ...PAL.dark };
+  function setTheme(name) { Object.assign(B, PAL[name] || PAL.light); }
   const MONO = '"JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace';
   const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
   const ok = (v) => v != null && !isNaN(v) && isFinite(v);
@@ -57,7 +68,7 @@
     const w = t.node().getComputedTextLength(); t.remove(); return w;
   }
   // Text color that reads on a given fill.
-  function ink(fill) { const c = d3.color(fill); if (!c) return B.fg; const { r, g, b } = c.rgb(); return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? B.bg : B.fg; }
+  function ink(fill) { const c = d3.color(fill); if (!c) return B.fg; const { r, g, b } = c.rgb(); return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#0b1024' : '#ffffff'; }
   function tooltip(el) {
     let tip = el.querySelector(':scope > .ub-tip');
     if (!tip) { tip = document.createElement('div'); tip.className = 'ub-tip'; tip.hidden = true; el.appendChild(tip); }
@@ -306,5 +317,5 @@
     } catch (e) { plain(); }
   }
 
-  window.UB = { B, MONO, fmt, spec, callout, spark, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
+  window.UB = { B, setTheme, MONO, fmt, spec, callout, spark, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
 })();

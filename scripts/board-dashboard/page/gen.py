@@ -48,7 +48,7 @@ out=f'''<style>
 {css}
 </style>
 
-<div id="ub">
+<div id="ub" data-theme="light">
   <header class="ub-head">
     <div class="ub-eyebrow-row">Untitled · Board reporting · <span class="ub-periodlabel">Q3 2026</span></div>
     <h1>Untitled Board Reporting</h1>
@@ -59,6 +59,7 @@ out=f'''<style>
       <div class="ub-control"><span class="ub-control-label">Period</span>{seg('ub-seg-period','Period',[('Q2','Q2 2026'),('Q3O','Q3 + October to date'),('YTD','Year to date')])}</div>
       <div class="ub-control"><span class="ub-control-label">Compare with</span>{seg('ub-seg-cmp','Compare with',[('prior','Prior period'),('yoy','Same period last year')])}</div>
       <div class="ub-control"><span class="ub-control-label">Live sources</span>{seg('ub-seg-data','Live sources',[('frozen','Board snapshot, Oct 13'),('live','Live')])}</div>
+      <div class="ub-control"><span class="ub-control-label">Theme</span>{seg('ub-seg-theme','Theme',[('light','Light'),('dark','Dark')])}</div>
     </div>
     <nav class="ub-tabs" aria-label="Sections">{''.join(f'<button type="button" data-tab="{k}">{v[0]}</button>' for k,v in tabs)}</nav>
   </header>
