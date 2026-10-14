@@ -26,7 +26,7 @@ pages={
 PRESETS=[('l90','Last 90 days'),('mtd','Month to date'),('last_m','Last month'),('qtd','Quarter to date'),('last_q','Last quarter'),('ytd','Year to date'),('l12m','Last 12 months'),('last_y','Last year'),('custom','Custom range')]
 gloss=[('MRR (subscription)','Monthly recurring revenue from platform licenses at month end, from Stripe via the KPI sheet. The headline MRR on this dashboard.'),
 ('Services retainer','The flat monthly web services retainer, reported beside subscription MRR, not inside it.'),
-('Blended recurring MRR','Subscription MRR plus services retainer plus month-end consumption and DSP run rate. The comparable figure to the "MRR" in earlier decks.'),
+('Total MRR','Subscription MRR plus services retainer plus month-end consumption and DSP run rate. The comparable figure to the "MRR" in earlier decks.'),
 ('Usage revenue','Consumption (per-resolution fees), DSP (media campaigns) and direct mail.'),
 ('Recurring revenue','Revenue recognized in the period from subscription, usage and services retainer. Leaves out one-off services projects.'),
 ('Net new MRR','Ending MRR minus beginning MRR for the period: new plus expansion plus reactivation, minus contraction and cancellation.'),

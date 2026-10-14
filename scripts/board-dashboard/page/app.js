@@ -249,7 +249,7 @@
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), m = lastOf(s.win), k = pick(d.kpi, (x) => x.month === m), r = pick(d.revenue, (x) => x.month === m);
       const steps = [['Subscription MRR (licenses)', k.license_mrr_ending, 'total'], ['Services retainer', k.services_retainer_mrr, 'up'], ['Subscription and services MRR', k.sub_ending, 'total'],
-        ['Consumption', k.consumption_kpi, 'up'], ['DSP', k.dsp_kpi, 'up'], ['Blended recurring MRR', k.blended_mrr, 'total']];
+        ['Consumption', k.consumption_kpi, 'up'], ['DSP', k.dsp_kpi, 'up'], ['Total MRR', k.blended_mrr, 'total']];
       const total = r.subscription + r.consumption + r.dsp + r.mail + r.services_retainer + r.services_projects;
       const { w } = size(el, opt, 0), rh = 40, h = (opt && opt.h) || (steps.length + 1) * rh + 12;
       const rr = Math.min(rh, (h - 12) / (steps.length + 1));
@@ -274,7 +274,7 @@
       const rev = rows('revenue'); if (!rev) return '';
       const a = pick(rev, (x) => x.month === '2026-04');
       const t = a ? a.subscription + a.consumption + a.dsp + a.mail + a.services_retainer + a.services_projects : null;
-      return `The May deck's "~$133K April MRR" was total monthly revenue (April: ${fmt.usd(t)}). This dashboard reports subscription MRR first, then builds up to blended recurring, which is the comparable figure. Usage lines here are the KPI sheet's month-end run rate.`;
+      return `The May deck's "~$133K April MRR" was total monthly revenue (April: ${fmt.usd(t)}). This dashboard reports subscription MRR first, then builds up to total MRR, which is the comparable figure. Usage lines here are the KPI sheet's month-end run rate.`;
     },
   };
 
@@ -1072,7 +1072,7 @@
       return `Subscription MRR ${up(m.license_ending, c.license_ending)} ${fmt.pct(chg(m.license_ending, c.license_ending)).slice(1)} to ${fmt.usd(m.license_ending)}, with ${fmt.signedUsd(m.net_new)} net new`; },
     'c-goals': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const e = pick(ec, (x) => x.month === S().ecMonth) || ec[ec.length - 1];
       return `June revenue goal met; end clients at ${d3.format('.0%')(e.end_clients / 400)} of the year-end goal`; },
-    'c-mrrdef': () => { const k = rows('kpi'); if (!k) return ''; const r = pick(k, (x) => x.month === lastOf(S().win)); return r ? `${fmt.usd(r.license_mrr_ending)} subscription MRR builds to ${fmt.usd(r.blended_mrr)} blended recurring` : ''; },
+    'c-mrrdef': () => { const k = rows('kpi'); if (!k) return ''; const r = pick(k, (x) => x.month === lastOf(S().win)); return r ? `${fmt.usd(r.license_mrr_ending)} subscription MRR builds to ${fmt.usd(r.blended_mrr)} total MRR` : ''; },
     'c-ov-book': () => TAKE['c-cumulative'](),
     'c-cumulative': () => { const dd = rows('booking_daily'); if (!dd) return ''; const s = S(), cur = dd.filter((r) => r.period === s.book), cmp = dd.filter((r) => r.period === s.bookComp);
       const lc = cur[cur.length - 1], same = cmp[Math.min(cur.length, cmp.length) - 1]; const dv = lc.tcv - same.tcv;
