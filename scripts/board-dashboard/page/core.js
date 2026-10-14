@@ -213,6 +213,7 @@
     const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, yfmt(t)));
     const x = d3.scaleBand(rows.map((r) => r.month), [left + 4, w - 4]).padding(0.24);
     yAxis(svg, y, left, w - 4, yfmt);
+    const ticks = [];
     const tip = tooltip(el), lf = lab || fmt.usdS;
     const every = Math.ceil(rows.length / Math.max(2, Math.floor((w - left) / 54)));
     const bw = x.bandwidth(), fs = bw >= 44 ? 11 : 10;
@@ -231,16 +232,27 @@
       });
       const tt = lf(acc);
       if (bw >= tt.length * fs * 0.6) g.append('text').attr('x', x(r.month) + bw / 2).attr('y', y(acc) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', fs + 1).text(tt);
-      if (i % every === 0 || on || i === rows.length - 1) svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').text(opt.xlab ? opt.xlab(r.month) : fmt.month(r.month));
+      ticks.push({ i, on, x: x(r.month) + bw / 2, t: opt.xlab ? opt.xlab(r.month) : fmt.month(r.month) });
       svg.append('rect').attr('x', x(r.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
         .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(r.month), series.filter((s) => r[s.key]).map((s) => [s.color, s.label, yfmt === fmt.n ? fmt.n(r[s.key]) : fmt.usdFull(r[s.key])]).reverse()
           .concat(series.length > 1 ? [[null, 'Total', yfmt === fmt.n ? fmt.n(acc) : fmt.usdFull(acc)]] : [])))
         .on('mouseleave', () => tip.hide());
     });
+    // Month labels placed from the right so the latest (usually highlighted) months always show; a label that would touch its neighbour is skipped.
+    let edge = Infinity;
+    ticks.slice().reverse().forEach((k) => {
+      if (!(k.i % every === 0 || k.on || k.i === rows.length - 1)) return;
+      const half = textW(svg, k.t, 'ub-tick') / 2 + 3;
+      if (k.x + half > edge) return;
+      svg.append('text').attr('x', k.x).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', k.on ? 'ub-tick ub-tick-on' : 'ub-tick').text(k.t);
+      edge = k.x - half;
+    });
     (opt.notes || []).forEach((n) => {
       const r = rows.find((q) => q.month === n.month); if (!r) return;
       const tot = d3.sum(series, (s) => r[s.key] || 0);
-      callout(svg, w, x(r.month) + x.bandwidth() / 2, n.atValue != null ? y(n.atValue) : y(tot) - 18, n.text, { lift: n.lift || 26 });
+      // Lift the tag clear of the tallest bar, so it never sits on a neighbour's total.
+      const py = n.atValue != null ? y(n.atValue) : y(tot) - 18;
+      callout(svg, w, x(r.month) + x.bandwidth() / 2, py, n.text, { lift: Math.max(n.lift || 26, py - y(max) + 22) });
     });
     return svg;
   }
