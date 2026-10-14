@@ -6,8 +6,9 @@ Nothing here writes to a source sheet.
 
 | Path | Does |
 | --- | --- |
+| `stripe_churn.py` | Pulls Stripe and writes customer cancellations and monthly MRR movements from January 2025 under the board KPI rules |
 | `build_data.py` | Reads the KPI sheet and TEAM REVENUE WINS with the service account, plus the churn log export and churn reasons, and writes one JSON per dashboard source to `.board-dashboard/out/` |
-| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split), as stored in the dashboard |
+| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split, opportunities by channel), as stored in the dashboard |
 | `page/` | The dashboard page: `font.js` (embedded Inter, OFL), `core.js` (charts, callouts, sparklines, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
 
 ## Sources and rules
@@ -18,6 +19,50 @@ Nothing here writes to a source sheet.
 - **New opportunities:** the KPI sheet's count (Opportunity, Enterprise and
   Expansion pipelines), with the HubSpot split by source beneath it
   (`sql/new_opportunities_split.sql`).
+
+## Plan tracker
+
+The Plan tracker tab scores October 2026 to March 2027 against the targets in
+CFO.ai's Cash Forecast Q4'26-Q1'27 scenario (table "Monthly sales & retention
+targets by channel", for the case selected in its Case toggle).
+
+- **CFO.ai is read only.** The `plan_targets` dataset calls
+  `inspect_table_blocks` and nothing else; changes to the model are made in
+  CFO.ai, by a person, and are asked about first.
+- **Actuals:** new-customer MRR and new customers from the Wins tabs by signed
+  date (the open month counts to date, with a full-month pace); expansion, lost
+  MRR, net change and ending MRR from the KPI sheet once a month closes;
+  consumption from the revenue tabs (`plan_actuals` in `calcs.js`).
+- **Pipeline:** `sql/opportunities_by_channel.sql` (created, won and lost by
+  month and channel) with the open-pipeline query. Win rate is won over won
+  plus lost for deals closed since August 1, 2026, when the demo-led motion
+  started.
+- **Board snapshot:** `plan_targets_frozen` and `opps_channel_frozen` as of
+  October 14, 2026 (Upside case). Retake both with the other `*_frozen` sets
+  before each board meeting.
+- CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
+  following month, so its view of a month lags this tab's.
+
+### Running notes: proposed CFO.ai target changes (for review, not applied)
+
+Raised October 14, 2026 after the first 45 days of the demo-led motion. Each
+changes only the Sales & Retention Targets inputs, not the case P&L or cash
+forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
+
+1. **Direct loss window.** The Direct loss allowance (8.8% of opening MRR a
+   month) averages April to September, including June's $8,850 spike. July to
+   September ran 6.9%. Moving the window would lower Direct's required new MRR
+   by about $800 a month.
+2. **New MRR per customer.** The model uses $446 (Direct) and $1,133
+   (Reseller), from July to September. The last 45 days ran $523 and $917:
+   about 10 Direct wins a month instead of 12, and 6 Reseller instead of 5.
+3. **Growth mix.** The model gives resellers 66% of net growth; the last 45
+   days ran 70%. Small effect either way.
+4. **Reseller-led variant to consider.** Direct new MRR covers Direct losses
+   (about $3,750 a month) and resellers carry all net growth (about $7,400 a
+   month rising to about $10,900 by March, 8 to 12 wins a month). Same total
+   new MRR. Watch: the model's 7% monthly reseller billing-lapse allowance, and
+   consumption being 99.6% reseller.
 
 ## Date range
 
@@ -60,9 +105,19 @@ drip of restatements:
 - **Bookings:** FY25 and FY26 WINS. Software only; services projects are left
   out. A new logo is a customer's first New software deal since January 2025.
   FY25 rows dated 2024 are read as 2025 and printed.
-- **Churn:** the Master Churn Data Log, with reasons from HubSpot company
-  `churn_reason`, then Slack (`slack_churn_reasons.json`), then the log's own
-  note, grouped by keyword into categories (`CATEGORIES`).
+- **Churn (who and how much):** Stripe cancellations from January 2025 under
+  the board KPI rules, built by `stripe_churn.py`, which runs
+  `scripts/board-kpis/mrr.py` over a longer history. These drive the churn
+  summary, reasons and who-churned cards for any date range.
+- **Churn (why):** the HubSpot company churn reason, live through
+  `sql/churn_reasons.sql`, matched to each cancellation by email domain and
+  then name (nearest churn date wins); otherwise the Master Churn Data Log's
+  note within two months (its 2026 tab and the 2025 rows of its Input tab),
+  which also supplies customer type and churn type. Grouped by keyword into
+  categories (`CATEGORIES`, mirrored in the `churns` calc).
+- **Churn totals:** lost MRR, churn rates and the MRR bridge stay on the KPI
+  sheet as published until the year-end rebase. The Internal tab's "Stripe vs
+  the KPI sheet, by month" shows what that restatement would change.
 - **Reseller end clients:** question 1156's logic without its 3-month lookback
   (`sql/reseller_end_clients.sql`); months before September 2025 come from the
   Wins tab as published.
@@ -73,7 +128,9 @@ drip of restatements:
    (or share it with the service account and read it like the other sheets).
 2. Save HubSpot companies with a 2026 `churn_date` (name, domain, churn_reason,
    churn_date) to `.board-dashboard/hubspot_churn_reasons.json`.
-3. `python3 scripts/board-dashboard/build_data.py`
+3. `python3 scripts/board-dashboard/build_data.py`, then
+   `python3 scripts/board-dashboard/stripe_churn.py` (pulls Stripe through the
+   proxy; a few minutes)
 4. Upload each changed file in `.board-dashboard/out/` to the dashboard and
    point its dataset at the new url; set `updated`.
 5. For a board meeting, re-run the `sql/` queries and save them as the

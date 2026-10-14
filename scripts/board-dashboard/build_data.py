@@ -10,7 +10,8 @@ Inputs:
 - Untitled Monthly KPIs, tab "Revised KPI Sheet Draft - V2" (service account)
 - TEAM REVENUE WINS: FY25 and FY26 wins, Monthly Revenue TTM and 2.5Y tabs
   (service account)
-- .board-dashboard/churn.xlsx: an .xlsx export of the Master Churn Data Log.
+- .board-dashboard/churn.xlsx: an .xlsx export of the Master Churn Data Log
+  (its 2026 tab, plus the 2025 rows of its Input tab).
   The service account has no access to that workbook yet; share it with
   deal-win-logger@internal-teamrevdealupdate.iam.gserviceaccount.com and this
   file can be read the same way as the others.
@@ -71,18 +72,19 @@ REV_LINES = {"Subscription Revenue": "subscription", "DSP Revenue": "dsp", "Cons
 
 # Churn reason categories, first match wins. The reason text is kept as written.
 CATEGORIES = [
-    ("Not recorded", r"^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given"),
-    ("Went unresponsive", r"unresponsive|never responded"),
-    ("Service miss", r"missed communication|went to spam and was missed"),
-    ("Business closed", r"shut(ting)? down|closure|business has failed|sold to|disbanded"),
+    ("Not recorded", r"^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given"),
+    ("Went unresponsive", r"disengage|never particularly responsive|unresponsive|never responded"),
+    ("Service miss", r"customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed"),
+    ("Business closed", r"shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down"),
     ("Non-payment", r"non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying"),
     ("Lost to competitor", r"competitor|rb2b|switched provider"),
     ("Compliance", r"legal|compliance"),
-    ("Low adoption", r"inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in"),
-    ("Champion left", r"left the company|stakeholder|champion|implementer left"),
+    ("Low adoption", r"low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz"),
+    ("Champion left", r"left the company|stakeholder|champion|implementer left|cheerleader"),
     ("Budget cuts", r"pe ownership|cost-cutting|cut costs|budget|discounted rate"),
-    ("Business change", r"pivot|downsiz|pre-launch|pre-order"),
+    ("Business change", r"agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause"),
     ("Product fit", r"deliverability|spam|complaints"),
+    ("Pricing dispute", r"pricing dispute|pricing change"),
     ("Low ROI or value", r"roi|justify|results|performance|value|cost"),
 ]
 
@@ -189,9 +191,16 @@ def churn_log(xlsx_path, reasons_path, slack_path):
     slack = {r["log_row"]: r for r in (json.load(open(slack_path)) if os.path.exists(slack_path) else [])}
     by_domain = {(h.get("domain") or "").lower(): h for h in hs if h.get("domain")}
     by_name = {re.sub(r"[^a-z0-9]", "", (h.get("name") or "").lower())[:8]: h for h in hs}
-    ws = openpyxl.load_workbook(xlsx_path, data_only=True)["2026"]
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+    # The 2026 tab as published, then 2025 from the Input tab, whose columns sit one to two places
+    # to the right (it adds Revenue Type and Standard Pricing). Rows are mapped onto the 2026 layout.
+    rows = [("", r) for r in wb["2026"].iter_rows(min_row=2, values_only=True)]
+    for r in wb["Input"].iter_rows(min_row=2, values_only=True):
+        if r and len(r) > 18 and r[1] == 2025:
+            rows.append(("2025-", (r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[9], r[11], r[12],
+                                   r[13], r[14], r[15], r[16], r[17], r[18])))
     out = []
-    for r in ws.iter_rows(min_row=2, values_only=True):
+    for prefix, r in rows:
         if not isinstance(r[0], (int, float)) or not r[3]:
             continue
         email_domain = str(r[4] or "").split("@")[-1].lower()
@@ -199,7 +208,7 @@ def churn_log(xlsx_path, reasons_path, slack_path):
              or by_name.get(re.sub(r"[^a-z0-9]", "", r[3].lower())[:8]))
         log_reason = (r[16] or "").strip()
         # Precedence: HubSpot's company churn reason, then Slack, then the log's own note.
-        sl = slack.get(int(r[0]))
+        sl = None if prefix else slack.get(int(r[0]))
         if h and not h["churn_reason"].lower().startswith("unspecified"):
             reason, src = h["churn_reason"], "HubSpot"
         elif sl:
@@ -211,7 +220,7 @@ def churn_log(xlsx_path, reasons_path, slack_path):
         else:
             reason, src = "", ""
         f = lambda v: v.strftime("%Y-%m-%d") if isinstance(v, dt.datetime) else v
-        out.append({"log_row": int(r[0]), "churn_month": r[13].strftime("%Y-%m"), "customer": r[3].strip(),
+        out.append({"log_row": "%s%d" % (prefix, int(r[0])), "churn_month": r[13].strftime("%Y-%m"), "customer": r[3].strip(),
                     "channel": r[6], "customer_type": r[7], "plan": r[8], "mrr": num(r[9]) or 0,
                     "start_date": f(r[11]), "end_date": f(r[12]), "days_active": r[14],
                     "churn_type": r[15] or "Not recorded", "reason": reason or "Not recorded",
@@ -229,7 +238,7 @@ def main():
     files["bookings.json"] = b
     churn_x = os.path.join(WS, "churn.xlsx")
     if os.path.exists(churn_x):
-        files["churn_log_2026.json"] = churn_log(churn_x, os.path.join(WS, "hubspot_churn_reasons.json"),
+        files["churn_log.json"] = churn_log(churn_x, os.path.join(WS, "hubspot_churn_reasons.json"),
                                                    os.path.join(WS, "slack_churn_reasons.json"))
     for name, rows in files.items():
         with open(os.path.join(OUT, name), "w") as fh:

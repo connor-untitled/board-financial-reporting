@@ -68,7 +68,8 @@
 #ub .ub-th { fill: var(--u-muted); font-size: 12px; font-weight: 600; }
 #ub .ub-td { fill: var(--u-fg); font-size: 13px; }
 #ub .ub-td-strong { font-weight: 700; }
-#ub .ub-offscreen { position: absolute; left: -99999px; top: 0; width: auto; }
+/* Table cards keep an SVG copy for Copy image; it is redrawn at export size, so the on-page copy only needs to exist. */
+#ub .ub-offscreen { position: absolute; left: -99999px; top: 0; width: 1px !important; height: 1px; overflow: hidden; }
 /* HTML tables */
 #ub .ub-tablewrap { overflow-x: auto; }
 #ub .ub-tablewrap-tall { max-height: 26rem; overflow: auto; }
@@ -141,3 +142,19 @@
 #ub .ub-range select:focus-visible, #ub .ub-range input:focus-visible { outline: 2px solid var(--u-sky); outline-offset: 2px; }
 #ub .ub-range-to, #ub .ub-cmplabel { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
 #ub .ub-cmplabel { margin-top: 2px; }
+
+/* Plan tracker */
+#ub .ub-plan td { white-space: nowrap; }
+#ub .ub-plan .ub-plan-sub { color: var(--u-muted); font-size: 11px; margin-top: 2px; }
+#ub .ub-plan tr.ub-plan-group td { font-weight: 700; text-align: left; padding-top: 14px; border-bottom: 1px solid var(--u-line); }
+#ub .ub-plan td.ub-st-ok > div:first-child { color: var(--u-mint); font-weight: 600; }
+#ub .ub-plan td.ub-st-near > div:first-child { color: var(--u-amber); font-weight: 600; }
+#ub .ub-plan td.ub-st-bad > div:first-child { color: var(--u-bad); font-weight: 600; }
+#ub .ub-plan td.ub-st-muted > div:first-child { color: var(--u-faint); }
+#ub .ub-plan-notes { margin: 0; padding-left: 18px; color: var(--u-fg); font-size: var(--cds-font-size-caption); line-height: 1.55; }
+#ub .ub-plan-notes li + li { margin-top: 6px; }
+
+/* Paged list under a chart */
+#ub .ub-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 8px; font-size: var(--cds-font-size-caption); color: var(--u-muted); }
+#ub .ub-pager button { font: inherit; background: none; border: 1px solid var(--u-line); border-radius: 6px; padding: 4px 10px; color: var(--u-fg); cursor: pointer; }
+#ub .ub-pager button:disabled { opacity: 0.4; cursor: default; }
