@@ -19,6 +19,26 @@ Nothing here writes to a source sheet.
   Expansion pipelines), with the HubSpot split by source beneath it
   (`sql/new_opportunities_split.sql`).
 
+## Date range
+
+The page has a preset menu (last 90 days, month to date, last month, quarter to
+date, last quarter, year to date, last 12 months, last year) and start/end date
+inputs; editing a date switches to a custom range. The default is last quarter,
+and each viewer's choice is remembered in their browser.
+
+- **Daily sources** (bookings, churns, reseller end clients) use the exact dates.
+- **Month-close sources** (MRR, revenue, customers, pipeline, MQLs) use the
+  closed months at least half inside the range. If none has closed yet, they
+  show the latest closed month, and the page says so.
+- **Compare with:** the previous period steps back one calendar unit for
+  calendar presets (a month, a quarter or a year), by the month count for a
+  whole-month custom range, and by the range's own length otherwise. Same
+  period last year steps back twelve months. Month-close comparisons always
+  cover the same number of months as the range.
+- The period calcs in `calcs.js` take an optional window map as their last
+  argument; the page reruns them on the picked range, and the dashboard's own
+  run uses the fixed windows written in each calc.
+
 ## Open for the year-end 2026 rebase
 
 Held so the board sees one set of definition changes at year end, not a
