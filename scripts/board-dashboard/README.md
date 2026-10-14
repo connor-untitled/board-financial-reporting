@@ -30,6 +30,12 @@ drip of restatements:
    gmail typos and throwaway domains) and internal addresses. Cleaned counts
    are Q1 2026 43, Q2 55, Q3 59, against 120, 129 and 75 today. The stage was
    not used before Q2 2025, so earlier quarters need a domain-only cleanup.
+3. **Funnel on new business only:** drop expansion deals from new
+   opportunities and measure marketing conversion as clean MQLs to
+   marketing-sourced new-business opportunities (Q3 2026: 59 to 43, 73%).
+   Show all new business, split marketing-sourced vs other, as pipeline mix
+   rather than a conversion rate. The headline count then comes from HubSpot
+   (Q3 90) instead of the KPI sheet (Q3 92, which includes expansion).
 - **Revenue by line:** the 2.5Y tab through June 2025, the TTM tab after.
 - **Bookings:** FY25 and FY26 WINS. Software only; services projects are left
   out. A new logo is a customer's first New software deal since January 2025.
