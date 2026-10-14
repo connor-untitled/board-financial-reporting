@@ -1,5 +1,5 @@
 // Metabase answers: column names plus row arrays, paired into rows.
-['end_clients', 'mqls', 'pipeline_open', 'opps_split'].forEach((id) => dash.loader(id, {
+['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel'].forEach((id) => dash.loader(id, {
   description: 'Metabase answers with column names and row arrays; this pairs them into rows.',
   fn: ({ answer }) => {
     const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
@@ -8,6 +8,41 @@
     return { columns: cols, rows: a.data.rows.map((r) => Object.fromEntries(cols.map((c, i) => [c, r[i]]))) };
   },
 }));
+
+// CFO.ai: the "Monthly sales & retention targets by channel" table, read only, as one row per month, channel and target.
+// A second read of the scenario's "Case toggle" table names the case the targets follow.
+dash.loader('plan_targets', {
+  description: 'CFO.ai answers a table as columns (months) and rows (each target, then its Direct and Reseller members); this makes one row per month, channel and target and adds the case selected in the scenario.',
+  fn: async ({ answer, call, args }) => {
+    const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
+    if (!a || !Array.isArray(a.rows) || !Array.isArray(a.columns)) throw new Error((a && (a.error || a.message)) || 'CFO.ai returned no table');
+    const KEY = { 'Target Opening Subscription MRR': 'opening', 'Target Net Subscription MRR Growth': 'net_growth', 'Target Billing Lapse Allowance': 'lapse',
+      'Target Total Subscription Loss Allowance': 'lost', 'Target Expansion MRR': 'expansion', 'Target Required New Customer MRR': 'new_mrr',
+      'Target Estimated New Customer Wins': 'wins', 'Target Ending Subscription MRR': 'ending', 'Target Consumption Revenue': 'consumption' };
+    const months = a.columns.map((c) => String(c.ref || '').slice(0, 7));
+    const val = (v) => (v && typeof v === 'object' ? v.value : v);
+    const out = [];
+    let metric = null;
+    a.rows.forEach((r) => {
+      if (r.variable) metric = KEY[r.display_name] || null;
+      if (!metric || !Array.isArray(r.values)) return;
+      const channel = r.member || (r.variable ? 'Total' : null);
+      if (channel !== 'Total' && channel !== 'Direct' && channel !== 'Reseller') return;
+      r.values.forEach((v, i) => { const x = val(v); if (x != null && x !== '' && /^\d{4}-\d{2}$/.test(months[i])) out.push({ month: months[i], channel, metric, value: +x }); });
+    });
+    if (!out.length) throw new Error('CFO.ai answered, but the targets table had no monthly values');
+    let pickCase = null;
+    try {
+      const t = await call('inspect_table_blocks', { read: { target: 'Case toggle#d56', scenario: args.read.scenario, comparison: 'none', format: 'json' } });
+      const tt = typeof t === 'string' ? JSON.parse(t) : t;
+      const row = ((tt && tt.rows) || []).find((r) => r.member === 'Active');
+      if (row) pickCase = row.values.map(val).filter((v) => typeof v === 'string' && v).pop() || null;
+    } catch (e) { pickCase = null; }
+    out.forEach((r) => { r.case = pickCase; });
+    return { columns: ['month', 'channel', 'metric', 'value', 'case'], rows: out,
+      meta: [{ label: 'Scenario', value: String(a.scenario || '') }, { label: 'Case selected in CFO.ai', value: pickCase || 'Not read' }, { label: 'CFO.ai table', value: (a.table && a.table.display_name) || 'Monthly sales & retention targets by channel' }] };
+  },
+});
 
 // The page reruns the period calcs on the range picked in the date control: each fn takes an optional
 // window map ({ __ub: true, w }) as its last argument and falls back to the fixed board windows below when called by the dashboard.
@@ -205,6 +240,41 @@ dash.calc('funnel_windows_frozen', {
         out.push({ period, stage: b, sub: true, value: sum(opps_split.filter((x) => x.bucket === b && ms.includes(x.month)), (x) => x.deals) }));
       out.push({ period, stage: 'Opportunities won', value: sum(k, (x) => x.opps_won) });
       out.push({ period, stage: 'New customers', value: sum(k, (x) => x.customers_new) });
+    });
+    return out;
+  },
+});
+
+// Plan tracker actuals, one row per month (August 2026 to March 2027) and channel. New MRR and new customers come from the
+// Wins tabs by signed date, so the open month counts to date; expansion, lost MRR and MRR balances come from the KPI sheet
+// once a month has closed; consumption from the revenue tabs.
+dash.calc('plan_actuals', {
+  inputs: ['kpi', 'bookings', 'revenue'],
+  title: 'Plan tracker actuals by month',
+  description: 'Per month and channel: new-customer MRR and new customers (first New software deal since January 2025, by signed date, from the Wins tabs), and for closed months the KPI sheet’s expansion, lost MRR (cancellation plus contraction), opening and ending subscription MRR, plus consumption revenue from the revenue tabs. Direct and Reseller as the KPI sheet splits them.',
+  fn: (kpi, bookings, revenue) => {
+    const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
+    const months = ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03'];
+    const out = [];
+    months.forEach((m) => {
+      const k = kpi.find((x) => x.month === m && x.sub_ending != null);
+      const rv = revenue.find((x) => x.month === m);
+      const bk = bookings.filter((b) => b.category === 'Software' && b.new_logo && b.date.slice(0, 7) === m);
+      const through = bk.length ? bk.map((b) => b.date).sort().pop() : null;
+      [['Direct', 'direct'], ['Reseller', 'reseller'], ['Total', 'sub']].forEach(([channel, p]) => {
+        const b = channel === 'Total' ? bk : bk.filter((x) => x.channel === channel);
+        const row = { month: m, channel, closed: !!k, through, new_mrr: sum(b, (x) => x.mrr), wins: b.length,
+          expansion: null, lost: null, opening: null, ending: null, net_growth: null, consumption: null };
+        if (k) {
+          row.expansion = +k[p + '_expansion'] || 0;
+          row.lost = (+k[p + '_cancellation'] || 0) + (+k[p + '_contraction'] || 0);
+          row.opening = +k[p + '_beginning'];
+          row.ending = +k[p + '_ending'];
+          row.net_growth = row.ending - row.opening;
+        }
+        if (channel === 'Total' && rv && k) row.consumption = +rv.consumption;
+        out.push(row);
+      });
     });
     return out;
   },

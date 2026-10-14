@@ -7,7 +7,7 @@ Nothing here writes to a source sheet.
 | Path | Does |
 | --- | --- |
 | `build_data.py` | Reads the KPI sheet and TEAM REVENUE WINS with the service account, plus the churn log export and churn reasons, and writes one JSON per dashboard source to `.board-dashboard/out/` |
-| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split), as stored in the dashboard |
+| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split, opportunities by channel), as stored in the dashboard |
 | `page/` | The dashboard page: `font.js` (embedded Inter, OFL), `core.js` (charts, callouts, sparklines, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
 
 ## Sources and rules
@@ -18,6 +18,29 @@ Nothing here writes to a source sheet.
 - **New opportunities:** the KPI sheet's count (Opportunity, Enterprise and
   Expansion pipelines), with the HubSpot split by source beneath it
   (`sql/new_opportunities_split.sql`).
+
+## Plan tracker
+
+The Plan tracker tab scores October 2026 to March 2027 against the targets in
+CFO.ai's Cash Forecast Q4'26-Q1'27 scenario (table "Monthly sales & retention
+targets by channel", for the case selected in its Case toggle).
+
+- **CFO.ai is read only.** The `plan_targets` dataset calls
+  `inspect_table_blocks` and nothing else; changes to the model are made in
+  CFO.ai, by a person, and are asked about first.
+- **Actuals:** new-customer MRR and new customers from the Wins tabs by signed
+  date (the open month counts to date, with a full-month pace); expansion, lost
+  MRR, net change and ending MRR from the KPI sheet once a month closes;
+  consumption from the revenue tabs (`plan_actuals` in `calcs.js`).
+- **Pipeline:** `sql/opportunities_by_channel.sql` (created, won and lost by
+  month and channel) with the open-pipeline query. Win rate is won over won
+  plus lost for deals closed since August 1, 2026, when the demo-led motion
+  started.
+- **Board snapshot:** `plan_targets_frozen` and `opps_channel_frozen` as of
+  October 14, 2026 (Upside case). Retake both with the other `*_frozen` sets
+  before each board meeting.
+- CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
+  following month, so its view of a month lags this tab's.
 
 ## Date range
 
