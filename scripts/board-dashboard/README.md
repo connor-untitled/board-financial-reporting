@@ -42,6 +42,27 @@ targets by channel", for the case selected in its Case toggle).
 - CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
   following month, so its view of a month lags this tab's.
 
+### Running notes: proposed CFO.ai target changes (for review, not applied)
+
+Raised October 14, 2026 after the first 45 days of the demo-led motion. Each
+changes only the Sales & Retention Targets inputs, not the case P&L or cash
+forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
+
+1. **Direct loss window.** The Direct loss allowance (8.8% of opening MRR a
+   month) averages April to September, including June's $8,850 spike. July to
+   September ran 6.9%. Moving the window would lower Direct's required new MRR
+   by about $800 a month.
+2. **New MRR per customer.** The model uses $446 (Direct) and $1,133
+   (Reseller), from July to September. The last 45 days ran $523 and $917:
+   about 10 Direct wins a month instead of 12, and 6 Reseller instead of 5.
+3. **Growth mix.** The model gives resellers 66% of net growth; the last 45
+   days ran 70%. Small effect either way.
+4. **Reseller-led variant to consider.** Direct new MRR covers Direct losses
+   (about $3,750 a month) and resellers carry all net growth (about $7,400 a
+   month rising to about $10,900 by March, 8 to 12 wins a month). Same total
+   new MRR. Watch: the model's 7% monthly reseller billing-lapse allowance, and
+   consumption being 99.6% reseller.
+
 ## Date range
 
 The page has a preset menu (last 90 days, month to date, last month, quarter to
