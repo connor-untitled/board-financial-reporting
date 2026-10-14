@@ -12,7 +12,6 @@ def card(cid, title, ds, img=True, table=True, extra='', tbl=None):
       <div class="ub-card-head"><div><h3 class="ub-card-title">{html.escape(title)}</h3><p class="ub-card-period"></p></div><div class="ub-actions">{btn}</div></div>
       <p class="ub-changed" hidden></p>{extra}
       {body}
-      <p class="ub-card-source"></p>
     </div>'''
 seg=lambda cls,label,opts: f'<div class="ub-seg {cls}" role="group" aria-label="{label}">'+''.join(f'<button type="button" data-v="{v}">{t}</button>' for v,t in opts)+'</div>'
 grid=lambda *c: '<div class="ub-grid2">'+''.join(c)+'</div>'
@@ -54,6 +53,7 @@ out=f'''<style>
     <div class="ub-eyebrow-row">Untitled · Board reporting · <span class="ub-periodlabel">Q3 2026</span></div>
     <h1>Untitled Board Reporting</h1>
     <p class="ub-takeaway dash-skeleton">—</p>
+    <p class="ub-asof">Data as of October 13, 2026. Sources and refresh details are on the Internal tab and in the Sources panel.</p>
     <p class="ub-closenote" hidden></p>
     <div class="ub-controls">
       <div class="ub-control"><span class="ub-control-label">Period</span>{seg('ub-seg-period','Period',[('Q2','Q2 2026'),('Q3','Q3 2026'),('Oct','October to date'),('YTD','Year to date')])}</div>
@@ -64,6 +64,7 @@ out=f'''<style>
   </header>
 {''.join(f'<section class="ub-page" id="{k}" hidden>{v[1]}</section>' for k,v in tabs)}
 </div>
+<script src="font.js"></script>
 <script src="core.js"></script>
 <script src="calcs.js"></script>
 <script src="app.js"></script>

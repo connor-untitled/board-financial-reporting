@@ -95,13 +95,37 @@
     lg.replaceChildren(...items.map(([c, t]) => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = c; s.append(i, t); return s; }));
   }
 
+  // A labelled callout: a dot on the mark, a short leader, and a text tag kept inside the chart.
+  function callout(svg, w, x, y, text, opt) {
+    const o = opt || {}, up = o.up !== false, ty = Math.max(14, up ? y - (o.lift || 30) : y + (o.lift || 30));
+    const g = svg.append('g').attr('class', 'ub-callout');
+    g.append('line').attr('x1', x).attr('x2', x).attr('y1', y + (up ? -3 : 3)).attr('y2', ty + (up ? 6 : -14)).attr('stroke', B.amber).attr('stroke-width', 1.2);
+    g.append('circle').attr('cx', x).attr('cy', y).attr('r', 3.5).attr('fill', B.amber);
+    const t = g.append('text').attr('class', 'ub-callout-text').attr('y', ty).text(text);
+    const tw = t.node().getComputedTextLength();
+    let tx = x - tw / 2; tx = Math.max(4, Math.min(w - tw - 4, tx));
+    t.attr('x', tx);
+    g.insert('rect', 'text').attr('x', tx - 6).attr('y', ty - 13).attr('width', tw + 12).attr('height', 19).attr('rx', 4).attr('fill', B.bg).attr('stroke', B.amber).attr('stroke-opacity', 0.6);
+    return g;
+  }
+  // Small trend line for a tile.
+  function spark(g, x, y, w, h, values, color) {
+    const v = values.filter((q) => q != null && isFinite(q)); if (v.length < 2) return;
+    const sx = d3.scaleLinear([0, v.length - 1], [x, x + w]), ext = d3.extent(v), pad = (ext[1] - ext[0]) * 0.1 || 1;
+    const sy = d3.scaleLinear([ext[0] - pad, ext[1] + pad], [y + h, y]);
+    const area = d3.area().x((q, i) => sx(i)).y0(y + h).y1((q) => sy(q));
+    g.append('path').attr('d', area(v)).attr('fill', color).attr('fill-opacity', 0.12);
+    g.append('path').attr('d', d3.line().x((q, i) => sx(i)).y((q) => sy(q))(v)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.8).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round');
+    g.append('circle').attr('cx', sx(v.length - 1)).attr('cy', sy(v[v.length - 1])).attr('r', 2.8).attr('fill', color);
+  }
+
   // Stacked monthly bars with segment and total labels where they fit.
   function stackedBars(el, opt) {
     const { rows, series, highlight, yfmt, lab } = opt;
     const { w, h } = size(el, opt, opt.height || 300);
     const svg = svgFor(el, w, h);
     const max = d3.max(rows, (r) => d3.sum(series, (s) => r[s.key] || 0)) || 1;
-    const y = d3.scaleLinear([0, max * 1.14], [h - 28, 16]).nice();
+    const y = d3.scaleLinear([0, max * (opt.notes && opt.notes.length ? 1.42 : 1.14)], [h - 28, 16]).nice();
     const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, yfmt(t)));
     const x = d3.scaleBand(rows.map((r) => r.month), [left + 4, w - 4]).padding(0.24);
     yAxis(svg, y, left, w - 4, yfmt);
@@ -129,6 +153,11 @@
           .concat(series.length > 1 ? [[null, 'Total', yfmt === fmt.n ? fmt.n(acc) : fmt.usdFull(acc)]] : [])))
         .on('mouseleave', () => tip.hide());
     });
+    (opt.notes || []).forEach((n) => {
+      const r = rows.find((q) => q.month === n.month); if (!r) return;
+      const tot = d3.sum(series, (s) => r[s.key] || 0);
+      callout(svg, w, x(r.month) + x.bandwidth() / 2, n.atValue != null ? y(n.atValue) : y(tot) - 18, n.text, { lift: n.lift || 26 });
+    });
     return svg;
   }
 
@@ -152,6 +181,7 @@
         t.append('tspan').attr('fill', B.muted).text(' ' + it.compText);
       }
       if (it.foot) g.append('text').attr('x', 16).attr('y', 114).attr('class', 'ub-tick').attr('font-size', 11).text(it.foot);
+      if (it.spark && tw >= 190) { const sw = Math.min(110, tw * 0.36); spark(g, tw - sw - 14, 34, sw, 30, it.spark, it.sparkColor || B.peri); }
     });
   }
 
@@ -175,7 +205,6 @@
     const title = card.querySelector('.ub-card-title').textContent;
     const period = (card.querySelector('.ub-card-period') || {}).textContent || '';
     const note = (card.querySelector('.ub-changed') || {}).textContent || '';
-    const foot = (card.querySelector('.ub-card-source') || {}).textContent || '';
     const noteLines = wrap(note, 150, 2);
     const head = pad + 30 + 26 + noteLines.length * 21 + 14;
     const legendEl = card.querySelector('.ub-body > .ub-legend');
@@ -191,9 +220,10 @@
       const out = document.createElementNS(ns, 'svg');
       out.setAttribute('xmlns', ns); out.setAttribute('width', W); out.setAttribute('height', H); out.setAttribute('viewBox', `0 0 ${W} ${H}`);
       const add = (tag, attrs, text) => { const n = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v)); if (text != null) n.textContent = text; out.appendChild(n); return n; };
+      if (window.UB_FONT_B64) { const st = document.createElementNS(ns, 'style'); st.textContent = `@font-face{font-family:UBInter;src:url(data:font/woff2;base64,${window.UB_FONT_B64}) format('woff2');font-weight:100 900;}`; out.appendChild(st); }
       add('rect', { width: W, height: H, fill: B.card });
-      const sans = 'Inter, system-ui, sans-serif';
-      add('text', { x: pad, y: pad + 22, fill: B.fg, 'font-size': 28, 'font-weight': 600, 'font-family': sans }, title);
+      const sans = 'UBInter, Inter, system-ui, sans-serif';
+      add('text', { x: pad, y: pad + 22, fill: B.fg, 'font-size': title.length > 70 ? 24 : 28, 'font-weight': 600, 'font-family': sans }, title);
       add('text', { x: pad, y: pad + 50, fill: B.peri, 'font-size': 16, 'font-weight': 500, 'font-family': sans }, period);
       noteLines.forEach((l, i) => add('text', { x: pad, y: pad + 78 + i * 21, fill: B.muted, 'font-size': 15, 'font-family': sans }, l));
       if (legendEl) {
@@ -212,7 +242,6 @@
       clone.setAttribute('x', pad); clone.setAttribute('y', head + legendH); clone.setAttribute('width', W - pad * 2); clone.setAttribute('height', chartH);
       out.appendChild(clone);
       add('line', { x1: pad, x2: W - pad, y1: H - 30, y2: H - 30, stroke: B.line });
-      add('text', { x: pad, y: H - 12, fill: B.faint, 'font-size': 12, 'font-family': MONO }, foot);
       add('text', { x: W - pad, y: H - 12, fill: B.faint, 'font-size': 12, 'font-family': MONO, 'text-anchor': 'end' }, 'Untitled · Confidential');
       return out;
     } finally { box.remove(); }
@@ -276,5 +305,5 @@
     } catch (e) { plain(); }
   }
 
-  window.UB = { B, MONO, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
+  window.UB = { B, MONO, fmt, spec, callout, spark, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
 })();

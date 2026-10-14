@@ -4,7 +4,7 @@
   --u-bg: #020617; --u-card: #0b1024; --u-line: #1d2545; --u-grid: #151c38;
   --u-fg: #f8fafc; --u-muted: #94a3b8; --u-faint: #64748b;
   --u-peri: #9691f4; --u-mint: #85ffe8; --u-sky: #77d4fd; --u-lav: #d8b4fe; --u-bad: #fb7185;
-  --u-sans: Inter, var(--font-anthropic-sans), system-ui, sans-serif;
+  --u-sans: UBInter, Inter, var(--font-anthropic-sans), system-ui, sans-serif;
   --u-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, monospace;
   font-family: var(--u-sans);
   display: grid; gap: var(--cds-gap-lg);
@@ -101,3 +101,7 @@
 #ub .ub-internal-note { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
 #ub .ub-status-needs-a-person { color: var(--u-bad); }
 #ub .ub-status-by-decision { color: var(--u-lav); }
+
+#ub .ub-asof { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+#ub .ub-card-title { text-wrap: balance; }
+#ub svg .ub-callout-text { fill: #fcd34d; font-size: 11.5px; font-weight: 600; }

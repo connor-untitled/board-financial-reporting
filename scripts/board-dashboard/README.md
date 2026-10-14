@@ -8,7 +8,7 @@ Nothing here writes to a source sheet.
 | --- | --- |
 | `build_data.py` | Reads the KPI sheet and TEAM REVENUE WINS with the service account, plus the churn log export and churn reasons, and writes one JSON per dashboard source to `.board-dashboard/out/` |
 | `sql/` | The three live Metabase queries (reseller end clients, MQLs, open pipeline), as stored in the dashboard |
-| `page/` | The dashboard page: `core.js` (charts, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
+| `page/` | The dashboard page: `font.js` (embedded Inter, OFL), `core.js` (charts, callouts, sparklines, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
 
 ## Sources and rules
 

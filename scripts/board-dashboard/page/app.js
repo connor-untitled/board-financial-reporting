@@ -1,6 +1,6 @@
 // Page: controls, card registry (draw + "what changed" note + sources), copy-to-deck wiring.
 (function () {
-  const { B, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap } = window.UB;
+  const { B, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   const state = { sel: 'Q3', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open'];
   const $ = (s) => document.querySelector('#ub ' + s);
@@ -67,6 +67,14 @@
     });
   }
 
+  // ---------- monthly series for sparklines: the 12 months ending with the period's last closed month
+  const monthsTo = (end, n) => { const out = []; let d = new Date(end + '-01T00:00:00Z'); for (let i = 0; i < n; i++) { out.unshift(d.toISOString().slice(0, 7)); d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)); } return out; };
+  const sparkEnd = () => { const s = S(); return state.sel === 'Oct' ? '2026-09' : lastOf(s.win); };
+  const kSeries = (kpi, f) => monthsTo(sparkEnd(), 12).map((m) => { const k = pick(kpi, (x) => x.month === m); return k ? f(k) : null; });
+  const rSeries = (rev, f) => monthsTo(sparkEnd(), 12).map((m) => { const r = pick(rev, (x) => x.month === m); return r ? f(r) : null; });
+  const bSeries = (bk, f) => monthsTo(state.sel === 'Oct' ? '2026-10' : sparkEnd(), 12).map((m) => f(bk.filter((b) => b.category === 'Software' && b.date.startsWith(m))));
+  const recurring = (r) => r.subscription + r.consumption + r.dsp + r.mail + r.services_retainer;
+
   // ---------- card registry
   const CARDS = {};
 
@@ -111,7 +119,7 @@
 
   CARDS['c-headline'] = {
     kind: 'book', src: ['kpi', 'revenue', 'bookings'],
-    data: () => ['mrr_windows', 'revenue_windows', 'booking_totals'],
+    data: () => ['mrr_windows', 'revenue_windows', 'booking_totals', 'kpi', 'revenue', 'bookings'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), mw = d.mrr_windows, rw = d.revenue_windows, bt = d.booking_totals;
@@ -119,6 +127,8 @@
       const r = winRows(rw, s.win), rc = winRows(rw, s.winComp), b = winRows(bt, s.book), bc = winRows(bt, s.bookComp);
       const cc = 'vs ' + WIN_LABEL[s.winComp], bk = 'vs ' + WIN_LABEL[s.bookComp];
       const W = (p, ch) => `period=${p}&channel=${ch}`;
+      const sp = [kSeries(d.kpi, (k) => k.license_mrr_ending), kSeries(d.kpi, (k) => k.sub_ending - k.sub_beginning), rSeries(d.revenue, recurring),
+        bSeries(d.bookings, (r) => d3.sum(r, (b) => b.tcv)), bSeries(d.bookings, (r) => r.filter((b) => b.new_logo).length), kSeries(d.kpi, (k) => 1 - k.gross_usd_churn_rate)];
       const items = [
         { label: 'Subscription MRR', value: fmt.usd(m.license_ending), delta: fmt.pct(chg(m.license_ending, mc.license_ending)), good: m.license_ending >= mc.license_ending, compText: cc, mark: { source: 'mrr_windows', field: 'license_ending', where: W(s.win, 'Total') }, foot: `+ ${fmt.usd(m.services_retainer)} services retainer` },
         { label: 'Net new MRR', value: fmt.signedUsd(m.net_new), delta: fmt.signedUsd(m.net_new - mc.net_new), good: m.net_new >= mc.net_new, compText: cc, mark: { source: 'mrr_windows', field: 'net_new', where: W(s.win, 'Total') } },
@@ -127,7 +137,8 @@
         { label: 'New logos', value: fmt.n(b.new_logos), delta: fmt.signedN(b.new_logos - bc.new_logos), good: b.new_logos >= bc.new_logos, compText: bk, mark: { source: 'booking_totals', field: 'new_logos', where: `period=${s.book}` } },
         { label: 'Monthly $ retention', value: fmt.rate(m.gross_retention), delta: fmt.pts(m.gross_retention - mc.gross_retention), good: m.gross_retention >= mc.gross_retention, compText: cc, mark: { source: 'mrr_windows', field: 'gross_retention', where: W(s.win, 'Total') }, foot: `Net, with expansion: ${fmt.rate(m.net_retention)}` },
       ];
-      tiles(el, items, opt);
+      items.forEach((it, i) => { it.spark = sp[i]; });
+      tiles(el, items, { ...opt, cols: (opt && opt.export) ? 3 : undefined });
       return { columns: ['Metric', WIN_LABEL[s.win] + ' / ' + WIN_LABEL[s.book], 'Change', 'Compared with'], rows: items.map((i) => [i.label, i.value, i.delta, i.compText.replace('vs ', '')]) };
     },
     note() {
@@ -244,7 +255,16 @@
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), rev = d.revenue.filter((r) => TREND(r.month));
       legend(el, REV_ALL.map((x) => [x.color, x.label]));
-      stackedBars(el, { ...opt, rows: rev, series: REV_ALL, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 360 });
+      const notes = [];
+      const bk = rows('bookings') || [];
+      const spike = rev.find((r, i) => i > 0 && r.services_projects > 10000 && rev[i - 1].services_projects < 10000);
+      if (spike) {
+        const big = bk.filter((b) => b.category === 'Services' && b.date <= spike.month + '-31').sort((a, z) => z.tcv - a.tcv)[0];
+        notes.push({ month: spike.month, text: big ? `${big.client.split(' - ')[0]} web build starts` : 'Services project starts' });
+      }
+      const recent = rev.slice(-6), low = recent.reduce((a, r) => (r.consumption < a.consumption ? r : a), recent[0]);
+      if (low && low !== spike) notes.push({ month: low.month, text: `Consumption low ${fmt.usd(low.consumption)}`, lift: 44 });
+      stackedBars(el, { ...opt, rows: rev, series: REV_ALL, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 360, notes });
       return { columns: ['Month'].concat(REV_ALL.map((x) => x.label), ['Recurring (excl. projects)', 'Total revenue']),
         rows: rev.map((r) => [fmt.monthLong(r.month)].concat(REV_ALL.map((x) => fmt.usdFull(r[x.key])), [fmt.usdFull(d3.sum(REV, (x) => r[x.key])), fmt.usdFull(d3.sum(REV_ALL, (x) => r[x.key]))])) };
     },
@@ -281,7 +301,10 @@
       const SR = [{ key: 'reseller', label: 'Reseller licenses', color: B.sky }, { key: 'direct', label: 'Direct licenses', color: B.peri }, { key: 'svc', label: 'Services retainer', color: B.deep }];
       const data = d.kpi.filter((k) => TREND(k.month)).map((k) => ({ month: k.month, reseller: k.reseller_ending, direct: k.direct_ending - k.services_retainer_mrr, svc: k.services_retainer_mrr }));
       legend(el, SR.map((x) => [x.color, x.label]));
-      stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 320 });
+      const kk = d.kpi.filter((k) => TREND(k.month)), best = kk.reduce((a, k) => (k.sub_new > a.sub_new ? k : a), kk[0]);
+      const notes = [{ month: best.month, text: `Record new MRR +${fmt.usd(best.sub_new)}` }];
+      kk.forEach((k, i) => { const prev = d.kpi.find((p) => p.month < k.month && d.kpi.indexOf(p) === d.kpi.indexOf(k) - 1); if (prev && Math.abs(k.sub_beginning - prev.sub_ending) > 1) notes.push({ month: k.month, text: `Stripe rebase ${fmt.signedUsd(k.sub_beginning - prev.sub_ending)}`, lift: 50 }); });
+      stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 330, notes });
       return { columns: ['Month'].concat(SR.map((x) => x.label), ['Total']), rows: data.map((r) => [fmt.monthLong(r.month)].concat(SR.map((x) => fmt.usdFull(r[x.key])), [fmt.usdFull(r.reseller + r.direct + r.svc)])) };
     },
     note() {
@@ -333,7 +356,7 @@
 
   // ---------- Sales and pipeline
   CARDS['c-salestiles'] = {
-    kind: 'book', src: ['bookings', 'revenue'], data: () => ['booking_totals', 'revenue'],
+    kind: 'book', src: ['bookings', 'revenue'], data: () => ['booking_totals', 'revenue', 'bookings'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), b = winRows(d.booking_totals, s.book), c = winRows(d.booking_totals, s.bookComp), ct = 'vs ' + WIN_LABEL[s.bookComp];
@@ -347,7 +370,11 @@
         { label: 'New logos', value: fmt.n(b.new_logos), delta: fmt.signedN(b.new_logos - c.new_logos), good: b.new_logos >= c.new_logos, compText: ct, mark: M('new_logos') },
       ];
       const cm = lastOf(s.win), cr = pick(d.revenue, (r) => r.month === cm), dr = pick(d.revenue, (r) => r.month === '2025-12');
-      if (cr && dr) items.push({ label: 'Monthly consumption growth', value: fmt.signedUsd(cr.consumption - dr.consumption), delta: fmt.usd(cr.consumption), good: cr.consumption >= dr.consumption, compText: `in ${fmt.month(cm)} vs ${fmt.usd(dr.consumption)} in Dec 25` });
+      const bkAll = rows('bookings') || [];
+      const sps = [(r) => d3.sum(r, (b) => b.tcv), (r) => r.filter((b) => b.tcv > 0).length, (r) => { const n = r.filter((b) => b.tcv > 0).length; return n ? d3.sum(r, (b) => b.tcv) / n : null; },
+        (r) => d3.sum(r, (b) => b.mrr), (r) => d3.sum(r, (b) => b.dsp_revenue), (r) => r.filter((b) => b.new_logo).length];
+      items.forEach((it, i) => { it.spark = bSeries(bkAll, sps[i]); });
+      if (cr && dr) items.push({ label: 'Monthly consumption growth', value: fmt.signedUsd(cr.consumption - dr.consumption), delta: fmt.usd(cr.consumption), good: cr.consumption >= dr.consumption, compText: `in ${fmt.month(cm)} vs ${fmt.usd(dr.consumption)} in Dec 25`, spark: rSeries(d.revenue, (r) => r.consumption), sparkColor: B.sky });
       tiles(el, items, { ...opt, cols: (opt && opt.export) || el.clientWidth > 900 ? 4 : undefined });
       return { columns: ['Metric', WIN_LABEL[s.book], WIN_LABEL[s.bookComp], 'Change'],
         rows: [['Contract bookings (TCV)', fmt.usdFull(b.tcv), fmt.usdFull(c.tcv)], ['Deals closed', b.deals, c.deals], ['Average deal', fmt.usdFull(b.avg_deal), fmt.usdFull(c.avg_deal)], ['Contracted MRR', fmt.usdFull(b.contracted_mrr), fmt.usdFull(c.contracted_mrr)], ['DSP bookings', fmt.usdFull(b.dsp), fmt.usdFull(c.dsp)], ['New logos', b.new_logos, c.new_logos]].map((r, i) => r.concat(items[i].delta)).concat(items[6] ? [['Monthly consumption growth vs Dec 2025', items[6].value, '', items[6].delta]] : []) };
@@ -423,12 +450,15 @@
     const lc = cur[cur.length - 1], lp = cmp[cmp.length - 1];
     const endLabW = Math.max(textW(svg, 'Now ' + fmt.usd(lc.tcv), 'ub-endlab'), textW(svg, 'Prior ' + fmt.usd(lp.tcv), 'ub-endlab')) + 14;
     const maxD = Math.max(cur.length, cmp.length);
-    const y = d3.scaleLinear([0, d3.max(cur.concat(cmp), (q) => q.tcv) * 1.12 || 1], [h - 28, 14]).nice();
+    const y = d3.scaleLinear([0, d3.max(cur.concat(cmp), (q) => q.tcv) * 1.22 || 1], [h - 28, 14]).nice();
     const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usd(t)));
     const x = d3.scaleLinear([1, maxD], [left + 6, w - endLabW]);
     yAxis(svg, y, left, w - endLabW, fmt.usd);
     const line = d3.line().x((q) => x(q.day)).y((q) => y(q.tcv)).curve(d3.curveStepAfter);
     [[cmp, B.prior], [cur, B.peri]].forEach(([q, c]) => svg.append('path').attr('d', line(q)).attr('fill', 'none').attr('stroke', c).attr('stroke-width', 2.5).attr('stroke-linejoin', 'round'));
+    // Callout on the largest single deal in the current period.
+    const bkc = (rows('bookings') || []).filter((b) => b.category === 'Software' && b.date >= cur[0].date && b.date <= lc.date).sort((a, z) => z.tcv - a.tcv)[0];
+    if (bkc && bkc.tcv >= 10000) { const p = cur.find((q) => q.date === bkc.date); if (p) callout(svg, w - endLabW, x(p.day), y(p.tcv), `${bkc.client.split(' - ')[0].split(' (')[0]} ${fmt.usd(bkc.tcv)}`, { lift: 34 }); }
     // Data labels at each month end of the current period.
     const marks = cur.filter((q, i) => i < cur.length - 1 && q.date.slice(5, 7) !== cur[i + 1].date.slice(5, 7));
     marks.forEach((q) => {
@@ -574,7 +604,7 @@
       const hist = d.reseller_history.filter((r) => !live.some((l) => l.month === r.month)).map((r) => ({ ...r, src: 'Sheet' }));
       const data = hist.concat(live).sort((a, z) => (a.month < z.month ? -1 : 1)).map((q) => ({ ...q, consumption: (pick(d.revenue, (r) => r.month === q.month) || {}).consumption }));
       const { w, h } = size(el, opt, 320), svg = svgFor(el, w, h);
-      const y = d3.scaleLinear([0, d3.max(data, (q) => q.end_clients) * 1.18], [h - 28, 14]).nice();
+      const y = d3.scaleLinear([0, d3.max(data, (q) => q.end_clients) * 1.3], [h - 28, 14]).nice();
       const y2 = d3.scaleLinear([0, d3.max(data, (q) => q.consumption || 0) * 1.18], [h - 28, 14]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.n(t))), right = 8 + d3.max(y2.ticks(4), (t) => textW(svg, fmt.usd(t)));
       const x = d3.scaleBand(data.map((q) => q.month), [left + 4, w - right]).padding(0.24);
@@ -597,6 +627,8 @@
         svg.append('circle').attr('cx', x(q.month) + bw / 2).attr('cy', y2(q.consumption)).attr('r', 3).attr('fill', B.mint);
         if (bw >= 26 || i === pts.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', y2(q.consumption) - 8).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 10).attr('fill', B.mint).text(fmt.usdS(q.consumption));
       });
+      const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
+      callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === '2026-10' ? ', half a month in' : ''}`, { lift: 22 });
       legend(el, [[B.deep, 'End clients (10+ resolutions)'], ['#c7c3f7', 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, 'October to date']]);
       return { columns: ['Month', 'Reseller end clients', 'Resellers with active clients', 'Consumption revenue', 'Source'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '', q.src === 'Sheet' ? 'Wins tab' : 'Metabase']) };
     },
@@ -610,10 +642,11 @@
 
   // ---------- Churn and retention
   CARDS['c-retention'] = {
-    kind: 'close', src: ['kpi', 'churn_log'], data: () => ['mrr_windows', 'churn_log'],
+    kind: 'close', src: ['kpi', 'churn_log'], data: () => ['mrr_windows', 'churn_log', 'kpi'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === 'Total'), mc = winRows(d.mrr_windows, s.winComp, (r) => r.channel === 'Total');
+      const rsp = [kSeries(d.kpi, (k) => 1 - k.gross_usd_churn_rate), kSeries(d.kpi, (k) => 1 - k.net_usd_churn_rate), kSeries(d.kpi, (k) => k.sub_cancellation + k.sub_contraction), kSeries(d.kpi, (k) => k.customers_churned)];
       const cc = 'vs ' + WIN_LABEL[s.winComp], W = `period=${s.win}&channel=Total`;
       const lost = m.cancellation + m.contraction, lostc = mc.cancellation + mc.contraction;
       const items = [
@@ -622,6 +655,7 @@
         { label: 'Lost MRR', value: fmt.usd(lost), delta: fmt.signedUsd(lost - lostc), good: lost <= lostc, compText: cc },
         { label: 'Customers churned', value: fmt.n(m.customers_churned), delta: fmt.signedN(m.customers_churned - mc.customers_churned), good: m.customers_churned <= mc.customers_churned, compText: cc, mark: { source: 'mrr_windows', field: 'customers_churned', where: W } },
       ];
+      items.forEach((it, i) => { it.spark = rsp[i]; it.sparkColor = i < 2 ? B.mint : B.bad; });
       tiles(el, items, { ...opt, cols: (opt && opt.export) ? 4 : undefined });
       return { columns: ['Metric', WIN_LABEL[s.win], 'Change', 'Compared with'], rows: items.map((i) => [i.label, i.value, i.delta, WIN_LABEL[s.winComp]]) };
     },
@@ -644,7 +678,10 @@
       const s = S(), SR = [{ key: 'direct', label: 'Direct', color: B.peri }, { key: 'reseller', label: 'Reseller', color: B.sky }];
       const data = d.kpi.filter((k) => TREND(k.month)).map((k) => ({ month: k.month, direct: k.direct_cancellation + (k.direct_contraction || 0), reseller: k.reseller_cancellation + (k.reseller_contraction || 0), n: k.customers_churned }));
       legend(el, SR.map((x) => [x.color, x.label]));
-      stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 300 });
+      const d26 = data.filter((q) => q.month >= '2026-01'), worst = d26.reduce((a, q) => (q.direct + q.reseller > a.direct + a.reseller ? q : a), d26[0]);
+      const lg = (rows('churn_log') || []).filter((x) => x.churn_month === worst.month).sort((a, z) => z.mrr - a.mrr).slice(0, 2).map((x) => x.customer.replace(/\s*\(.*\)/, '').split(' ')[0]);
+      const notes = [{ month: worst.month, text: lg.length ? `${lg.join(' and ')} left` : 'Largest month' }];
+      stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 310, notes });
       return { columns: ['Month', 'Direct lost MRR', 'Reseller lost MRR', 'Total', 'Customers churned'], rows: data.map((r) => [fmt.monthLong(r.month), fmt.usdFull(r.direct), fmt.usdFull(r.reseller), fmt.usdFull(r.direct + r.reseller), r.n]) };
     },
     note() {
@@ -885,7 +922,7 @@
       const qs = [['Q1', '01', '03'], ['Q2', '04', '06'], ['Q3', '07', '09'], ['Q4 to date', '10', '12']].map(([q, a, z]) => { const r = sw.filter((b) => b.date.slice(5, 7) >= a && b.date.slice(5, 7) <= z); return { q, tcv: d3.sum(r, (b) => b.tcv), n: r.filter((b) => b.tcv > 0).length }; });
       const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h);
       const split = w > 700 ? 0.64 : 1, w1 = w * split - (split < 1 ? 16 : 0);
-      const y = d3.scaleLinear([0, d3.max(data, (q) => q.tcv) * 1.2], [h - 44, 14]);
+      const y = d3.scaleLinear([0, d3.max(data, (q) => q.tcv) * 1.4], [h - 44, 14]);
       const x = d3.scaleBand(data.map((q) => q.month), [0, w1]).padding(0.22);
       svg.append('text').attr('x', 0).attr('y', 10).attr('class', 'ub-eyebrow').text('BY MONTH');
       const tip = tooltip(el);
@@ -896,6 +933,8 @@
         svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', h - 26).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 11).text(d3.utcFormat('%b')(new Date(q.month + '-01T00:00:00Z')) + (q.month === '2026-10' ? '*' : ''));
         svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 10).text(q.n + ' deals');
       });
+      const bm = data.reduce((a, q) => (q.tcv > a.tcv ? q : a), data[0]);
+      callout(svg, w1, x(bm.month) + x.bandwidth() / 2, y(bm.tcv) - 16, 'Best month of 2026', { lift: 16 });
       if (split < 1) {
         const x2 = d3.scaleBand(qs.map((q) => q.q), [w1 + 32, w]).padding(0.25), y2 = d3.scaleLinear([0, d3.max(qs, (q) => q.tcv) * 1.2], [h - 44, 14]);
         svg.append('text').attr('x', w1 + 32).attr('y', 10).attr('class', 'ub-eyebrow').text('BY QUARTER');
@@ -987,6 +1026,65 @@
     note: () => 'The May deck’s YTD marketing snapshot, by HubSpot original source. MQLs to paying customers is the KPI sheet’s count of new Stripe customers whose email domain matches an MQL.',
   };
 
+  // ---------- takeaway titles: the conclusion first; the chart's name moves to the line under it
+  const TAKE = {
+    'c-highlights': () => `${S().label}: what went well`,
+    'c-headline': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
+      return `Subscription MRR ${up(m.license_ending, c.license_ending)} ${fmt.pct(chg(m.license_ending, c.license_ending)).slice(1)} to ${fmt.usd(m.license_ending)}, with ${fmt.signedUsd(m.net_new)} net new`; },
+    'c-goals': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const e = pick(ec, (x) => x.month === S().ecMonth) || ec[ec.length - 1];
+      return `June revenue goal met; end clients at ${d3.format('.0%')(e.end_clients / 400)} of the year-end goal`; },
+    'c-mrrdef': () => { const k = rows('kpi'); if (!k) return ''; const r = pick(k, (x) => x.month === lastOf(S().win)); return r ? `${fmt.usd(r.license_mrr_ending)} subscription MRR builds to ${fmt.usd(r.blended_mrr)} blended recurring` : ''; },
+    'c-ov-book': () => TAKE['c-cumulative'](),
+    'c-cumulative': () => { const dd = rows('booking_daily'); if (!dd) return ''; const s = S(), cur = dd.filter((r) => r.period === s.book), cmp = dd.filter((r) => r.period === s.bookComp);
+      const lc = cur[cur.length - 1], same = cmp[Math.min(cur.length, cmp.length) - 1]; const dv = lc.tcv - same.tcv;
+      return `${WIN_LABEL[s.book]} bookings finished ${fmt.usd(Math.abs(dv))} ${dv >= 0 ? 'ahead of' : 'behind'} ${WIN_LABEL[s.bookComp]}`; },
+    'c-revmix': () => { const rw = rows('revenue_windows'); if (!rw) return ''; const s = S(), c = winRows(rw, s.win), p = winRows(rw, s.winComp);
+      const dv = chg(c.recurring_total, p.recurring_total);
+      return dv >= 0 ? `Recurring revenue up ${fmt.pct(dv).slice(1)} to ${fmt.usd(c.recurring_total)}` : `Recurring revenue ${fmt.usd(c.recurring_total)}: usage dipped while subscription MRR grew`; },
+    'c-swsvc': () => { const rw = rows('revenue_windows'); if (!rw) return ''; const c = winRows(rw, S().win), sw = c.subscription + c.usage, tot = sw + c.services_retainer + c.services_projects;
+      return `Software is ${d3.format('.0%')(sw / tot)} of revenue in ${WIN_LABEL[S().win]}`; },
+    'c-revdetail': () => { const rw = rows('revenue_windows'); if (!rw) return ''; const c = winRows(rw, S().win); return `${fmt.usd(c.subscription)} subscription and ${fmt.usd(c.usage)} usage revenue in ${WIN_LABEL[S().win]}`; },
+    'c-mrrtrend': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), rc = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
+      return `Reseller licenses ${up(r.ending, rc.ending)} ${fmt.pct(chg(r.ending, rc.ending)).slice(1)} to ${fmt.usd(r.ending)}`; },
+    'c-bridge': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === state.channel);
+      return `${state.channel === 'Total' ? '' : state.channel + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
+    'c-salestiles': () => { const bt = rows('booking_totals'); if (!bt) return ''; const s = S(), b = winRows(bt, s.book), c = winRows(bt, s.bookComp);
+      return `Software bookings ${up(b.tcv, c.tcv)} ${fmt.pct(chg(b.tcv, c.tcv)).slice(1)} to ${fmt.usd(b.tcv)}; average deal ${fmt.usd(b.avg_deal)}`; },
+    'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const sw = bk.filter((b) => b.category === 'Software' && b.date >= '2026-01-01');
+      const by = d3.rollups(sw, (v) => d3.sum(v, (b) => b.tcv), (b) => b.date.slice(0, 7)).sort((a, z) => z[1] - a[1])[0];
+      return by ? `${fmt.monthLong(by[0]).split(' ')[0]} was the biggest bookings month of 2026 at ${fmt.usd(by[1])}` : ''; },
+    'c-groups': () => { const g = rows('booking_groups'); if (!g) return ''; const s = S(), r = g.filter((x) => x.period === s.book && x.dimension === state.dim).sort((a, z) => z.tcv - a.tcv);
+      const tot = d3.sum(r, (x) => x.tcv); return r.length ? `${r[0].group} drove ${d3.format('.0%')(r[0].tcv / tot)} of ${WIN_LABEL[s.book]} TCV` : ''; },
+    'c-dealmix': () => { const bt = rows('booking_totals'); if (!bt) return ''; const b = winRows(bt, S().book); return `${d3.format('.0%')(b.reseller_tcv / (b.tcv || 1))} of software TCV came through resellers`; },
+    'c-topdeals': () => CARDS['c-topdeals'].note().replace(/\.$/, ''),
+    'c-pipeline': () => { const p = rows(id('pipeline_open')), bt = rows('booking_totals'); if (!p || !bt) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
+      return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / winRows(bt, 'Q3').tcv)}x Q3 software bookings`; },
+    'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
+    'c-mayfollow': () => { const m = rows('may_pipeline'); if (!m) return ''; const open = m.filter((x) => x.value_now > 0); return `${open.length} of ${m.length} May deals still open, led by Liberty Mutual at ${fmt.usd(open[0] ? open[0].value_now : 0)}`; },
+    'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
+    'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
+      const max = d3.max(ec, (x) => +x.end_clients); return +e.end_clients >= max ? `Reseller end clients at a record ${e.end_clients}` : `${e.end_clients} reseller end clients across ${e.resellers} resellers`; },
+    'c-custdeck': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
+      return `${m.customers_ending} paying customers, ${fmt.signedN(m.customers_ending - c.customers_ending)} vs ${WIN_LABEL[s.winComp]}`; },
+    'c-customers': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), c = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
+      return `Paying resellers grew from ${c.customers_ending} to ${r.customers_ending}`; },
+    'c-retention': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === 'Total');
+      return `${fmt.rate(m.gross_retention)} of MRR kept each month on average; ${fmt.rate(m.net_retention)} with expansion`; },
+    'c-churnsum': () => { const log = rows('churn_log'); if (!log) return ''; const ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[S().win].filter((m) => m >= '2026-01');
+      const r = log.filter((x) => ms.includes(x.churn_month)); return `${r.length} customers and ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR churned, mostly small Direct accounts`; },
+    'c-churnmrr': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
+      const l = m.cancellation + m.contraction, lc = c.cancellation + c.contraction; return `Lost MRR ${fmt.usd(l)}, ${l <= lc ? 'down' : 'up'} ${fmt.usd(Math.abs(l - lc))} vs ${WIN_LABEL[s.winComp]}`; },
+    'c-reasons': () => { const log = rows('churn_log'); if (!log) return ''; const ms = state.sel === 'Oct' ? ['2026-09', '2026-10'] : WIN_MONTHS[S().win];
+      const by = d3.rollups(log.filter((x) => ms.includes(x.churn_month) && x.reason_category !== 'Not recorded'), (v) => d3.sum(v, (x) => x.mrr), (x) => x.reason_category).sort((a, z) => z[1] - a[1]);
+      return by.length ? `${by[0][0]} is the leading reason, at ${fmt.usd(by[0][1])} of lost MRR` : ''; },
+    'c-mqls': () => { const mq = rows(id('mqls')); if (!mq) return ''; const ms = WIN_MONTHS[S().win], t = d3.sum(mq.filter((r) => ms.includes(r.month)), (r) => +r.mqls);
+      const org = d3.sum(mq.filter((r) => ms.includes(r.month) && r.source === 'Organic search'), (r) => +r.mqls); return `${t} MQLs in ${WIN_LABEL[S().win]}, ${d3.format('.0%')(t ? org / t : 0)} from organic search`; },
+    'c-mqlchannels': () => { const mq = rows(id('mqls')); if (!mq) return ''; const ms = WIN_MONTHS[S().win];
+      const by = d3.rollups(mq.filter((r) => ms.includes(r.month)), (v) => d3.sum(v, (r) => +r.mqls), (r) => r.source).sort((a, z) => z[1] - a[1]); return by.length ? `${by[0][0]} is the top MQL channel` : ''; },
+    'c-funnel': () => { const f = rows(state.data === 'frozen' ? 'funnel_windows_frozen' : 'funnel_windows'); if (!f) return ''; const c = f.filter((r) => r.period === S().win);
+      const g = (n) => (pick(c, (r) => r.stage === n) || {}).value; return `${g('New customers')} new customers from ${g('New opportunities')} new opportunities`; },
+  };
+
   // ---------- tables
   function htmlTable(el, head, body2, strong) {
     let wrapEl = el.querySelector(':scope > .ub-tablewrap');
@@ -1075,11 +1173,14 @@
     const page = document.getElementById(state.tab);
     page.querySelectorAll('.ub-card').forEach((c) => {
       const def = CARDS[c.id]; if (!def) return;
+      const tt = c.querySelector('.ub-card-title'); if (!tt.dataset.name) tt.dataset.name = tt.textContent;
       const per = c.querySelector('.ub-card-period'); if (per && def.kind !== 'static') per.textContent = periodText(def.kind);
+      if (per && TAKE[c.id]) per.textContent = tt.dataset.name + (per.textContent && def.kind !== 'static' ? ' · ' + periodText(def.kind) : '');
       const t = def.draw(body(c.id), null); if (t) c._table = t;
       const ch = c.querySelector('.ub-changed'); if (ch) { const n = def.note(); ch.textContent = n; ch.hidden = !n; }
-      const f = c.querySelector('.ub-card-source'); if (f) { const ft = footer(c.id); if (ft) f.textContent = ft; }
+      if (TAKE[c.id]) { let t = ''; try { t = TAKE[c.id](); } catch (e) { t = ''; } tt.textContent = t || tt.dataset.name; }
     });
   }
   dash.onData(render);
+  if (window.UB_FONT_LOADED) window.UB_FONT_LOADED.then((ok) => { if (ok) render(); });
 })();
