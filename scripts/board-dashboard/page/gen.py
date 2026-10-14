@@ -20,7 +20,7 @@ plan_notes=["Targets are the 'Monthly sales & retention targets by channel' tabl
 "New-customer MRR and new customers come from the Wins tabs by signed date, so the open month counts to date and its pace is the month-to-date figure scaled to the full month.",
 "Expansion, MRR lost, net change and ending MRR come from the KPI sheet once a month closes. Consumption comes from the revenue tabs.",
 "Pipeline coverage uses HubSpot's Opportunity and Enterprise pipelines. Win rate is won over won plus lost for deals closed since August 1, when the demo-led motion started.",
-"The model's October opening MRR is $80,250 (Direct $42,650, Reseller $37,600); the KPI sheet's September close is $80,350 (Direct $41,650, Reseller $38,700). The channel split differs by about $1,000 of MRR booked to a different channel."]
+"The model's opening MRR comes from its own September baseline, so it can split Direct and Reseller slightly differently from the KPI sheet's September close; compare the two before reading a small channel gap as a miss."]
 plan_about='<div class="ub-card" id="c-plan-about"><div class="ub-card-head"><div><h3 class="ub-card-title">How this tracker works</h3><p class="ub-card-period">Targets from CFO.ai, read only</p></div></div><ul class="ub-plan-notes">'+''.join(f'<li>{html.escape(t)}</li>' for t in plan_notes)+'</ul></div>'
 pages={
 'overview':['Overview', card('c-highlights','Highlights','kpi booking_totals mrr_windows end_clients')+card('c-headline','Headline numbers','mrr_windows revenue_windows booking_totals')+grid(card('c-goals','Progress on 2026 goals','goals end_clients revenue kpi'),card('c-mrrdef','What we mean by MRR','kpi revenue'))+card('c-ov-book','Cumulative software bookings, day by day','booking_daily')],

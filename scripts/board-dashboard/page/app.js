@@ -127,7 +127,7 @@
       const r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), rc = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
       if (r && rc && r.ending > rc.ending) items.push({ big: fmt.pct(chg(r.ending, rc.ending)), text: `Reseller MRR, ${fmt.usd(rc.ending)} to ${fmt.usd(r.ending)}; resellers ${rc.customers_ending} to ${r.customers_ending}.` });
       const b = winRows(bt, s.book), bc = winRows(bt, s.bookComp);
-      if (b && bc && b.avg_deal > bc.avg_deal) items.push({ big: fmt.usd(b.avg_deal), text: `Average software deal, up ${fmt.pct(chg(b.avg_deal, bc.avg_deal)).slice(1)} from ${fmt.usd(bc.avg_deal)}: larger contracts as we move up-market.` });
+      if (b && bc && b.avg_deal > bc.avg_deal) items.push({ big: fmt.usd(b.avg_deal), text: `Average software deal, up ${fmt.pct(chg(b.avg_deal, bc.avg_deal)).slice(1)} from ${fmt.usd(bc.avg_deal)}.` });
       const e = pick(ec, (x) => x.month === s.ecMonth), maxPrior = d3.max(ec.filter((x) => x.month < s.ecMonth), (x) => +x.end_clients);
       if (e && +e.end_clients > maxPrior) items.push({ big: fmt.n(+e.end_clients), text: `Reseller end clients in ${openLabel(s.ecMonth, s.openMonth)}, a new high.` });
       if (b && bc && b.tcv > bc.tcv) items.push({ big: fmt.usd(b.tcv), text: `Software bookings, ${fmt.pct(chg(b.tcv, bc.tcv))} vs ${WIN_LABEL[s.bookComp]}.` });
@@ -180,8 +180,11 @@
       let t = `Subscription MRR ${up(m.license_ending, mc.license_ending)} ${fmt.pct(chg(m.license_ending, mc.license_ending)).slice(1)} to ${fmt.usd(m.license_ending)}.`;
       if (r.recurring_total < rc.recurring_total) {
         const ms = WIN_MONTHS[s.win], lastNew = pick(kpi, (k) => k.month === ms[ms.length - 1]);
-        t += ` Recurring revenue is down ${fmt.pct(chg(r.recurring_total, rc.recurring_total)).slice(1)} because usage fell ${fmt.usd(rc.usage - r.usage)} (consumption ${fmt.signedUsd(r.consumption - rc.consumption)}, DSP ${fmt.signedUsd(r.dsp - rc.dsp)})`;
-        t += ms.length > 1 && lastNew ? `, and ${fmt.usd(lastNew.sub_new)} of new MRR landed in ${fmt.monthLong(lastNew.month)}, so most of it shows in next quarter's revenue.` : '.';
+        t += ` Recurring revenue is down ${fmt.pct(chg(r.recurring_total, rc.recurring_total)).slice(1)}`;
+        t += r.usage < rc.usage ? `; usage fell ${fmt.usd(rc.usage - r.usage)} (consumption ${fmt.signedUsd(r.consumption - rc.consumption)}, DSP ${fmt.signedUsd(r.dsp - rc.dsp)})` : '';
+        // Only when the period's last month brought most of its new MRR is it worth saying the revenue lands next period.
+        const newAll = d3.sum(kpi.filter((k) => ms.includes(k.month)), (k) => k.sub_new);
+        t += ms.length > 1 && lastNew && lastNew.sub_new > newAll / 2 ? `, and ${fmt.usd(lastNew.sub_new)} of the period's ${fmt.usd(newAll)} new MRR landed in ${fmt.monthLong(lastNew.month)}, so most of it shows in the next period's revenue.` : '.';
       }
       return t;
     },
@@ -721,7 +724,15 @@
       const kpi = rows('kpi'); if (!kpi) return '';
       const s = S(), ms = WIN_MONTHS[s.win], r = kpi.filter((k) => ms.includes(k.month));
       const worst = r.reduce((a, k) => ((k.sub_cancellation + k.sub_contraction) > (a ? a.sub_cancellation + a.sub_contraction : -1) ? k : a), null);
-      return worst ? `Heaviest month: ${fmt.monthLong(worst.month)} at ${fmt.usd(worst.sub_cancellation + worst.sub_contraction)}. Direct carries most of the lost MRR; reseller losses are smaller and offset by reseller growth.` : '';
+      if (!worst) return '';
+      const lost = (k, p) => (+k[p + '_cancellation'] || 0) + (+k[p + '_contraction'] || 0);
+      const dl = d3.sum(r, (k) => lost(k, 'direct')), rl = d3.sum(r, (k) => lost(k, 'reseller')), tl = dl + rl;
+      const first = r[0], last = r[r.length - 1], rGrow = last.reseller_ending - first.reseller_beginning;
+      let t = `Heaviest month: ${fmt.monthLong(worst.month)} at ${fmt.usd(worst.sub_cancellation + worst.sub_contraction)}.`;
+      if (tl) t += ` ${dl >= rl ? 'Direct' : 'Reseller'} carried ${d3.format('.0%')(Math.max(dl, rl) / tl)} of the ${fmt.usd(tl)} lost MRR`;
+      if (tl && rl) t += rGrow > rl ? `; reseller MRR still grew ${fmt.usd(rGrow)} net.` : rGrow > 0 ? `; reseller MRR grew ${fmt.usd(rGrow)} net.` : `; reseller MRR fell ${fmt.usd(-rGrow)} net.`;
+      else if (tl) t += '.';
+      return t;
     },
   };
 
@@ -1047,7 +1058,8 @@
     note() {
       const m = rows('may_pipeline'); if (!m) return '';
       const open = m.filter((x) => x.value_now > 0);
-      return `${open.length} of the ${m.length} deals the May deck highlighted are still open (${fmt.usd(d3.sum(open, (x) => x.value_now))}), led by Liberty Mutual; ${m.length - open.length} closed lost or churned.`;
+      const top = open.slice().sort((x, z) => z.value_now - x.value_now)[0];
+      return `${open.length} of the ${m.length} deals the May deck highlighted are still open (${fmt.usd(d3.sum(open, (x) => x.value_now))})${top ? `, led by ${top.deal}` : ''}; ${m.length - open.length} closed lost or churned.`;
     },
   };
 
@@ -1103,7 +1115,7 @@
     'c-pipeline': () => { const p = rows(id('pipeline_open')); if (!p || !rows('bookings')) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
       const lq = lastQ(); return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / lq.tcv)}x ${lq.label} software bookings`; },
     'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
-    'c-mayfollow': () => { const m = rows('may_pipeline'); if (!m) return ''; const open = m.filter((x) => x.value_now > 0); return `${open.length} of ${m.length} May deals still open, led by Liberty Mutual at ${fmt.usd(open[0] ? open[0].value_now : 0)}`; },
+    'c-mayfollow': () => { const m = rows('may_pipeline'); if (!m) return ''; const open = m.filter((x) => x.value_now > 0); const top = open.slice().sort((x, z) => z.value_now - x.value_now)[0]; return top ? `${open.length} of ${m.length} May deals still open, led by ${top.deal} at ${fmt.usd(top.value_now)}` : `None of the ${m.length} May deals are still open`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
     'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
       const max = d3.max(ec, (x) => +x.end_clients); return +e.end_clients >= max ? `Reseller end clients at a record ${e.end_clients}` : `${e.end_clients} reseller end clients across ${e.resellers} resellers`; },
@@ -1114,7 +1126,8 @@
     'c-retention': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === 'Total');
       return `${fmt.rate(m.gross_retention)} of MRR kept each month on average; ${fmt.rate(m.net_retention)} with expansion`; },
     'c-churnsum': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths().filter((m) => m >= '2026-01');
-      const r = log.filter((x) => ms.includes(x.churn_month)); return `${r.length} customers and ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR churned, mostly small Direct accounts`; },
+      const r = log.filter((x) => ms.includes(x.churn_month)); const tot = d3.sum(r, (x) => x.mrr), dir = d3.sum(r.filter((x) => x.channel === 'Direct'), (x) => x.mrr);
+      return r.length ? `${r.length} customers and ${fmt.usd(tot)} MRR churned; ${d3.format('.0%')(tot ? dir / tot : 0)} of it Direct, ${fmt.usd(tot / r.length)} a customer on average` : 'No churns logged in the period'; },
     'c-churnmrr': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       const l = m.cancellation + m.contraction, lc = c.cancellation + c.contraction; return `Lost MRR ${fmt.usd(l)}, ${l <= lc ? 'down' : 'up'} ${fmt.usd(Math.abs(l - lc))} vs ${WIN_LABEL[s.winComp]}`; },
     'c-reasons': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths();
