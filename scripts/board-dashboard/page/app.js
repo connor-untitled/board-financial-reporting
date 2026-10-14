@@ -103,6 +103,8 @@
     const r = UBC.booking_totals(raw('bookings') || [], { __ub: true, w: { LQ: [a, z] } })[0];
     return { tcv: r ? r.tcv : 0, label: `Q${q} ${a.slice(0, 4)}` };
   }
+  // When the board snapshot of the live sources was taken, from the Source dates dataset.
+  const snapDate = () => { const r = pick(raw('snapshot_info'), (x) => x.source === 'frozen'); return r ? fmt.date(r.as_of) : 'the snapshot date'; };
   const recurring = (r) => r.subscription + r.consumption + r.dsp + r.mail + r.services_retainer;
 
   // ---------- card registry
@@ -190,18 +192,20 @@
     data: () => ['goals', id('end_clients'), 'revenue', 'kpi'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const s = S(), goals = d.goals, ec = d[id('end_clients')], rev = d.revenue, kpi = d.kpi;
+      const s = S(), goals = d.goals, ec = d[id('end_clients')], rev = d.revenue, kpi = d.kpi, G0 = (n) => goals.find((g) => g.goal.startsWith(n));
       const e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
-      const jun = pick(rev, (x) => x.month === '2026-06');
+      const exG = G0('Exit monthly'), exM = exG ? d3.utcFormat('%Y-%m')(new Date(`1 ${exG.by} UTC`)) : null;
+      const jun = pick(rev, (x) => x.month === exM);
       const junTotal = jun ? jun.subscription + jun.consumption + jun.dsp + jun.mail + jun.services_retainer + jun.services_projects : null;
-      const dec = pick(kpi, (k) => k.month === '2025-12'), last = kpi[kpi.length - 1];
+      const PY = +(goals.map((g) => (String(g.by).match(/\d{4}/) || [])[0]).filter(Boolean).sort().pop() || s.end.slice(0, 4));
+      const dec = pick(kpi, (k) => k.month === `${PY - 1}-12`), last = kpi[kpi.length - 1];
       const totalRev = (x) => x.subscription + x.consumption + x.dsp + x.mail + x.services_retainer + x.services_projects, lastRev = rev[rev.length - 1];
-      const G = (n) => goals.find((g) => g.goal.startsWith(n));
+      const G = (n) => goals.find((g) => g.goal.startsWith(n)), by = (n) => G(n).by.replace(/^(\w{3})\w* /, '$1 ');
       const list = [
-        { name: 'Resellers with active end clients', cur: +e.resellers, target: G('Resellers').target, hi: null, by: 'Dec 2026', start: G('Resellers').baseline, f: fmt.n },
-        { name: 'Active reseller end clients', cur: +e.end_clients, target: G('Active reseller').target, hi: G('Active reseller').target_high, by: 'Dec 2026', start: G('Active reseller').baseline, f: fmt.n },
-        { name: 'Exit monthly revenue (June 2026)', cur: junTotal, target: G('Exit monthly').target, hi: null, by: 'Jun 2026', start: G('Exit monthly').baseline, f: fmt.usd, done: true },
-        { name: `Period-end MRR, deck basis (${fmt.month(lastRev.month)})`, cur: totalRev(lastRev), target: G('December').target, hi: null, by: 'Dec 2026', start: G('December').baseline, f: fmt.usd },
+        { name: 'Resellers with active end clients', cur: +e.resellers, target: G('Resellers').target, hi: null, by: by('Resellers'), start: G('Resellers').baseline, f: fmt.n },
+        { name: 'Active reseller end clients', cur: +e.end_clients, target: G('Active reseller').target, hi: G('Active reseller').target_high, by: by('Active reseller'), start: G('Active reseller').baseline, f: fmt.n },
+        { name: `Exit monthly revenue (${exG ? exG.by : ''})`, cur: junTotal, target: G('Exit monthly').target, hi: null, by: by('Exit monthly'), start: G('Exit monthly').baseline, f: fmt.usd, done: true },
+        { name: `Period-end MRR, deck basis (${fmt.month(lastRev.month)})`, cur: totalRev(lastRev), target: G('December').target, hi: null, by: by('December'), start: G('December').baseline, f: fmt.usd },
       ];
       const trends = [
         { name: 'Avg subscription MRR per customer', a: dec.avg_mrr_per_customer, b: last.avg_mrr_per_customer, f: fmt.usd, good: last.avg_mrr_per_customer >= dec.avg_mrr_per_customer },
@@ -225,7 +229,7 @@
         svg.append('text').attr('x', w - 2).attr('y', y0 + 19).attr('text-anchor', 'end').attr('class', 'ub-delta').attr('fill', met ? B.good : B.fg).text(met ? 'Met' : d3.format('.0%')(pct) + ' of goal');
       });
       const t0 = list.length * rowH + 22;
-      svg.append('text').attr('x', 0).attr('y', t0).attr('class', 'ub-eyebrow').text('2026 FOCUS AREAS, SINCE DECEMBER 2025');
+      svg.append('text').attr('x', 0).attr('y', t0).attr('class', 'ub-eyebrow').text(`${PY} FOCUS AREAS, SINCE DECEMBER ${PY - 1}`);
       trends.forEach((t, i) => {
         const y0 = t0 + 14 + i * 40;
         svg.append('text').attr('x', 0).attr('y', y0 + 16).attr('class', 'ub-lab').text(t.name);
@@ -233,12 +237,13 @@
         svg.append('text').attr('x', w - 2).attr('y', y0 + 16).attr('text-anchor', 'end').attr('class', 'ub-delta').attr('fill', t.good ? B.good : B.bad).text(t.good ? 'Improving' : 'Needs work');
       });
       return { columns: ['Goal', 'Current', 'Target', 'Status'], rows: list.map((g) => [g.name, g.f(g.cur), g.f(g.target) + (g.hi ? '–' + g.f(g.hi) : '') + ' by ' + g.by, g.cur >= g.target ? 'Met' : d3.format('.0%')(g.cur / g.target) + ' of goal'])
-        .concat(trends.map((t) => [t.name, t.f(t.b), 'Dec 2025: ' + t.f(t.a), t.good ? 'Improving' : 'Needs work'])) };
+        .concat(trends.map((t) => [t.name, t.f(t.b), `Dec ${PY - 1}: ` + t.f(t.a), t.good ? 'Improving' : 'Needs work'])) };
     },
     note() {
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
-      return `Goals from the May 2026 board deck. Reaching 400 end clients by December needs about ${fmt.n(Math.max(0, 400 - e.end_clients))} more; resellers with active clients need ${fmt.n(Math.max(0, 60 - e.resellers))} more. The June revenue goal was set on total monthly revenue, the way the May deck reported "MRR". The December MRR goal ($184K) uses the same total-revenue basis. Break-even tracking comes from CFO.ai and is not shown here.`;
+      const gl = rows('goals') || [], ecG = gl.find((g) => g.goal.startsWith('Active reseller')) || {}, rsG = gl.find((g) => g.goal.startsWith('Resellers')) || {};
+      return `Reaching ${fmt.n(ecG.target)} end clients by ${ecG.by} needs about ${fmt.n(Math.max(0, ecG.target - e.end_clients))} more; resellers with active clients need ${fmt.n(Math.max(0, rsG.target - e.resellers))} more to reach ${fmt.n(rsG.target)}. Revenue goals are on total monthly revenue. Break-even tracking comes from CFO.ai and is not shown here.`;
     },
   };
 
@@ -272,9 +277,7 @@
     },
     note() {
       const rev = rows('revenue'); if (!rev) return '';
-      const a = pick(rev, (x) => x.month === '2026-04');
-      const t = a ? a.subscription + a.consumption + a.dsp + a.mail + a.services_retainer + a.services_projects : null;
-      return `The May deck's "~$133K April MRR" was total monthly revenue (April: ${fmt.usd(t)}). This dashboard reports subscription MRR first, then builds up to total MRR, which is the comparable figure. Usage lines here are the KPI sheet's month-end run rate.`;
+      return 'Subscription MRR builds up to total MRR by adding the services retainer and the month-end usage run rate (consumption and DSP) from the KPI sheet.';
     },
   };
 
@@ -298,7 +301,7 @@
       return { columns: ['Month'].concat(REV_ALL.map((x) => x.label), ['Recurring (excl. projects)', 'Total revenue']),
         rows: rev.map((r) => [fmt.monthLong(r.month)].concat(REV_ALL.map((x) => fmt.usdFull(r[x.key])), [fmt.usdFull(d3.sum(REV, (x) => r[x.key])), fmt.usdFull(d3.sum(REV_ALL, (x) => r[x.key]))])) };
     },
-    note() { const t = CARDS['c-headline'].note(); return t ? t + ' Bars include one-off services projects (lightest segment) so totals match total revenue, as in the May deck.' : ''; },
+    note() { const t = CARDS['c-headline'].note(); return t ? t + ' Bars include one-off services projects (lightest segment) so totals match total revenue.' : ''; },
   };
 
   CARDS['c-revdetail'] = {
@@ -399,15 +402,15 @@
         { label: 'DSP bookings', value: fmt.usd(b.dsp), delta: fmt.pct(chg(b.dsp, c.dsp)), good: b.dsp >= c.dsp, compText: ct, mark: M('dsp') },
         { label: 'New logos', value: fmt.n(b.new_logos), delta: fmt.signedN(b.new_logos - c.new_logos), good: b.new_logos >= c.new_logos, compText: ct, mark: M('new_logos') },
       ];
-      const cm = lastOf(s.win), cr = pick(d.revenue, (r) => r.month === cm), dr = pick(d.revenue, (r) => r.month === '2025-12');
+      const cm = lastOf(s.win), cr = pick(d.revenue, (r) => r.month === cm), dm = lastOf(s.winComp), dr = pick(d.revenue, (r) => r.month === dm);
       const bkAll = rows('bookings') || [];
       const sps = [(r) => d3.sum(r, (b) => b.tcv), (r) => r.filter((b) => b.tcv > 0).length, (r) => { const n = r.filter((b) => b.tcv > 0).length; return n ? d3.sum(r, (b) => b.tcv) / n : null; },
         (r) => d3.sum(r, (b) => b.mrr), (r) => d3.sum(r, (b) => b.dsp_revenue), (r) => r.filter((b) => b.new_logo).length];
       items.forEach((it, i) => { it.spark = bSeries(bkAll, sps[i]); });
-      if (cr && dr) items.push({ label: 'Monthly consumption growth', value: fmt.signedUsd(cr.consumption - dr.consumption), delta: fmt.usd(cr.consumption), good: cr.consumption >= dr.consumption, compText: `in ${fmt.month(cm)} vs ${fmt.usd(dr.consumption)} in Dec 25`, spark: rSeries(d.revenue, (r) => r.consumption), sparkColor: B.sky });
+      if (cr && dr) items.push({ label: 'Monthly consumption change', value: fmt.signedUsd(cr.consumption - dr.consumption), delta: fmt.usd(cr.consumption), good: cr.consumption >= dr.consumption, compText: `in ${fmt.month(cm)} vs ${fmt.usd(dr.consumption)} in ${fmt.month(dm)}`, spark: rSeries(d.revenue, (r) => r.consumption), sparkColor: B.sky });
       tiles(el, items, { ...opt, cols: (opt && opt.export) || el.clientWidth > 900 ? 4 : undefined });
       return { columns: ['Metric', WIN_LABEL[s.book], WIN_LABEL[s.bookComp], 'Change'],
-        rows: [['Contract bookings (TCV)', fmt.usdFull(b.tcv), fmt.usdFull(c.tcv)], ['Deals closed', b.deals, c.deals], ['Average deal', fmt.usdFull(b.avg_deal), fmt.usdFull(c.avg_deal)], ['Contracted MRR', fmt.usdFull(b.contracted_mrr), fmt.usdFull(c.contracted_mrr)], ['DSP bookings', fmt.usdFull(b.dsp), fmt.usdFull(c.dsp)], ['New logos', b.new_logos, c.new_logos]].map((r, i) => r.concat(items[i].delta)).concat(items[6] ? [['Monthly consumption growth vs Dec 2025', items[6].value, '', items[6].delta]] : []) };
+        rows: [['Contract bookings (TCV)', fmt.usdFull(b.tcv), fmt.usdFull(c.tcv)], ['Deals closed', b.deals, c.deals], ['Average deal', fmt.usdFull(b.avg_deal), fmt.usdFull(c.avg_deal)], ['Contracted MRR', fmt.usdFull(b.contracted_mrr), fmt.usdFull(c.contracted_mrr)], ['DSP bookings', fmt.usdFull(b.dsp), fmt.usdFull(c.dsp)], ['New logos', b.new_logos, c.new_logos]].map((r, i) => r.concat(items[i].delta)).concat(items[6] ? [[`Monthly consumption change vs ${fmt.month(dm)}`, items[6].value, '', items[6].delta]] : []) };
     },
     note() {
       const bt = rows('booking_totals'), bk = rows('bookings'); if (!bt || !bk) return '';
@@ -666,7 +669,7 @@
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth), c = pick(ec, (x) => x.month === s.ecComp);
       if (!e || !c) return '';
-      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Activity dipped in June and July; October is already a high with half the month to go. Months before September 2025 are the Wins tab as published.`;
+      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Months before September 2025 come from the Wins tab as published.`;
     },
   };
 
@@ -749,7 +752,7 @@
     note() {
       const log = rows('churn_log'); if (!log) return '';
       const s = S(), ms = selMonths(), r = log.filter((x) => ms.includes(x.churn_month));
-      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${WIN_LABEL[s.book]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}. Stripe also shows Ticketsauce (September, $500), which is not in the log yet.`;
+      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${WIN_LABEL[s.book]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}.`;
     },
   };
 
@@ -759,7 +762,7 @@
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), mq = d[id('mqls')];
-      const months = [...new Set(mq.map((r) => r.month))].filter((m) => m >= '2025-07').sort();
+      const months = [...new Set(mq.map((r) => r.month))].filter((m) => TREND(m) || (m > S().lastClosed && S().months.includes(m))).sort();
       const data = months.map((m) => { const o = { month: m }; SRC.forEach(([x]) => { o[x] = d3.sum(mq.filter((r) => r.month === m && r.source === x), (r) => +r.mqls); }); return o; });
       const SR = SRC.filter(([x]) => data.some((q) => q[x])).map(([x, c]) => ({ key: x, label: x, color: c }));
       legend(el, SR.map((x) => [x.color, x.label]));
@@ -820,7 +823,7 @@
       tb.replaceChildren(...r.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.source; cells(x).forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }); return tr; }));
       return { columns: ['Source', 'As of', 'Covers', 'Refresh'], rows: r.map(cells) };
     },
-    note: () => `Numbers mode: ${state.data === 'frozen' ? 'board snapshot. Pipeline, MQLs and end clients show October 13, 2026 values for everyone.' : 'live. Pipeline, MQLs and end clients query Metabase with your own access.'}`,
+    note: () => `Numbers mode: ${state.data === 'frozen' ? `board snapshot. Pipeline, MQLs and end clients show ${snapDate()} values for everyone.` : 'live. Pipeline, MQLs and end clients query Metabase with your own access.'}`,
   };
   CARDS['c-checks'] = {
     kind: 'static', src: [], data: () => ['checks'],
@@ -876,7 +879,7 @@
       const rw = rows('revenue_windows'); if (!rw) return '';
       const s = S(), c = winRows(rw, s.win), p = winRows(rw, s.winComp);
       const sw = (x) => x.subscription + x.usage, sv = (x) => x.services_retainer + x.services_projects;
-      return `Software ${fmt.usd(sw(c))} (${fmt.pct(chg(sw(c), sw(p)))}) and services ${fmt.usd(sv(c))} in ${WIN_LABEL[s.win]}. Services includes one-off web projects (${fmt.usd(c.services_projects)}), which are left out of recurring metrics. Same view as the May deck's software vs services slide.`;
+      return `Software ${fmt.usd(sw(c))} (${fmt.pct(chg(sw(c), sw(p)))}) and services ${fmt.usd(sv(c))} in ${WIN_LABEL[s.win]}. Services includes one-off web projects (${fmt.usd(c.services_projects)}), which are left out of recurring metrics.`;
     },
   };
 
@@ -945,7 +948,7 @@
       const log = rows('churn_log'); if (!log) return '';
       const s = S(), ms = selMonths().filter((m) => m >= '2026-01');
       const r = log.filter((x) => ms.includes(x.churn_month)), dir = r.filter((x) => x.channel === 'Direct');
-      return `Same layout as the May deck's churn summary, from the churn log. Direct accounts are ${d3.format('.0%')(r.length ? dir.length / r.length : 0)} of churned customers and ${d3.format('.0%')(d3.sum(r, (x) => x.mrr) ? d3.sum(dir, (x) => x.mrr) / d3.sum(r, (x) => x.mrr) : 0)} of churned MRR.`;
+      return `From the churn log. Direct accounts are ${d3.format('.0%')(r.length ? dir.length / r.length : 0)} of churned customers and ${d3.format('.0%')(d3.sum(r, (x) => x.mrr) ? d3.sum(dir, (x) => x.mrr) / d3.sum(r, (x) => x.mrr) : 0)} of churned MRR.`;
     },
   };
 
@@ -986,7 +989,7 @@
       }
       return { columns: ['Period', 'Software TCV', 'Deals'], rows: data.map((q) => [fmt.monthLong(q.month), fmt.usdFull(q.tcv), q.n]).concat(qs.map((q) => [q.q + ' ' + Y, fmt.usdFull(q.tcv), q.n])) };
     },
-    note() { return 'Software bookings by signed date, as in the May deck’s Sales KPIs slides. The open month (*) is month to date. The May deck counted the $5K Hestan Napa web project in February; it is a services project and is left out here.'; },
+    note() { return 'Software bookings by signed date. The open month (*) is month to date. Services projects are left out.'; },
   };
 
   CARDS['c-dealmix'] = {
@@ -1004,7 +1007,7 @@
       return { columns: ['Group', WIN_LABEL[s.book], WIN_LABEL[s.bookComp]], rows: types.map((t) => [t + ' deals', cur.filter((x) => x.deal_type === t).length, cmp.filter((x) => x.deal_type === t).length])
         .concat(chans.map((ch) => [ch + ' share of TCV', d3.format('.0%')(d3.sum(cur.filter((x) => x.channel === ch), (x) => x.tcv) / (d3.sum(cur, (x) => x.tcv) || 1)), d3.format('.0%')(d3.sum(cmp.filter((x) => x.channel === ch), (x) => x.tcv) / (d3.sum(cmp, (x) => x.tcv) || 1))])) };
     },
-    note: () => 'Deal counts by type and the channel split of software TCV, the two charts the May deck showed beside bookings.',
+    note: () => 'Deal counts by type and the channel split of software TCV.',
   };
 
   CARDS['c-pipetable'] = {
@@ -1028,7 +1031,7 @@
     note() {
       const p = rows(id('pipeline_open')); if (!p) return '';
       const tot = d3.sum(p, (r) => +r.pipeline_value), n = d3.sum(p, (r) => +r.deals);
-      return `Full pipeline ${fmt.usd(tot)} across ${n} deals, vs $726.5K across 44 deals in the May 5 snapshot. The Enterprise pipeline is empty because its open deals were moved into Opportunity or closed; see what happened to the May deals below.`;
+      return `Full pipeline ${fmt.usd(tot)} across ${n} deals, by pipeline, block and stage.`;
     },
   };
 
@@ -1062,7 +1065,7 @@
       tableSvg(el, head, body2, opt);
       return { columns: head, rows: body2 };
     },
-    note: () => 'The May deck’s YTD marketing snapshot, by HubSpot original source. MQLs to paying customers is the KPI sheet’s count of new Stripe customers whose email domain matches an MQL.',
+    note: () => 'By HubSpot original source. MQLs to paying customers is the KPI sheet’s count of new Stripe customers whose email domain matches an MQL.',
   };
 
   // ---------- takeaway titles: the conclusion first; the chart's name moves to the line under it
@@ -1071,7 +1074,8 @@
     'c-headline': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       return `Subscription MRR ${up(m.license_ending, c.license_ending)} ${fmt.pct(chg(m.license_ending, c.license_ending)).slice(1)} to ${fmt.usd(m.license_ending)}, with ${fmt.signedUsd(m.net_new)} net new`; },
     'c-goals': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const e = pick(ec, (x) => x.month === S().ecMonth) || ec[ec.length - 1];
-      return `June revenue goal met; end clients at ${d3.format('.0%')(e.end_clients / 400)} of the year-end goal`; },
+      const ecG = (rows('goals') || []).find((g) => g.goal.startsWith('Active reseller')); if (!ecG) return '';
+      return `End clients at ${d3.format('.0%')(e.end_clients / ecG.target)} of the ${fmt.n(ecG.target)} goal; ${fmt.n(e.resellers)} resellers with active clients`; },
     'c-mrrdef': () => { const k = rows('kpi'); if (!k) return ''; const r = pick(k, (x) => x.month === lastOf(S().win)); return r ? `${fmt.usd(r.license_mrr_ending)} subscription MRR builds to ${fmt.usd(r.blended_mrr)} total MRR` : ''; },
     'c-ov-book': () => TAKE['c-cumulative'](),
     'c-cumulative': () => { const dd = rows('booking_daily'); if (!dd) return ''; const s = S(), cur = dd.filter((r) => r.period === s.book), cmp = dd.filter((r) => r.period === s.bookComp);
@@ -1164,7 +1168,7 @@
       const r = pick(info, (q) => q.source === x);
       return r ? `${r.label}, as of ${fmt.date(r.as_of)}` : '';
     }).filter(Boolean);
-    if ((CARDS[c].src || []).includes('goals')) parts.unshift('Goals: Q2 2026 board deck');
+    if ((CARDS[c].src || []).includes('goals')) parts.unshift('Goals: ' + ((pick(raw('goals'), () => true) || {}).source || 'board goals').split(',')[0]);
     return parts.length ? 'Source: ' + parts.join(' · ') : '';
   }
   function periodText(kind) {
@@ -1172,7 +1176,7 @@
     if (kind === 'book') return `${WIN_LABEL[s.book]} vs ${WIN_LABEL[s.bookComp]}`;
     if (kind === 'close') return `${WIN_LABEL[s.win]} vs ${WIN_LABEL[s.winComp]}`;
     if (kind === 'trend') { const k = (raw('kpi') || []).map((r) => r.month).filter(TREND); return `Monthly, ${fmt.monthLong(k[0] || s.win)} to ${fmt.monthLong(k[k.length - 1] || s.win)} · highlighted: ${WIN_LABEL[s.win]}`; }
-    if (kind === 'live') return state.data === 'frozen' ? 'Open today, board snapshot of October 13, 2026' : 'Open right now (live)';
+    if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
     return '';
   }
 
@@ -1233,6 +1237,8 @@
     $$('.ub-tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === state.tab));
     $$('.ub-page').forEach((p) => { p.hidden = p.id !== state.tab; });
     $('.ub-periodlabel').textContent = s.label;
+    { const si = raw('snapshot_info') || [], d = si.map((x) => x.as_of).sort().pop(); if (d) $('.ub-asofdate').textContent = fmt.date(d); }
+    $$('.ub-seg-data button').forEach((b) => { if (b.dataset.v === 'frozen') b.textContent = `Board snapshot, ${snapDate().replace(/, \d{4}$/, '')}`; });
     $('.ub-closenote').textContent = s.closeNote || '';
     $('.ub-closenote').hidden = !s.closeNote;
     const tk = $('.ub-takeaway'), hn = CARDS['c-headline'].note();
