@@ -1,5 +1,5 @@
 // Metabase answers: column names plus row arrays, paired into rows.
-['end_clients', 'mqls', 'pipeline_open'].forEach((id) => dash.loader(id, {
+['end_clients', 'mqls', 'pipeline_open', 'opps_split'].forEach((id) => dash.loader(id, {
   description: 'Metabase answers with column names and row arrays; this pairs them into rows.',
   fn: ({ answer }) => {
     const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
@@ -155,10 +155,10 @@ dash.calc('pipeline_windows', {
 });
 
 dash.calc('funnel_windows', {
-  inputs: ['mqls', 'kpi'],
+  inputs: ['mqls', 'kpi', 'opps_split'],
   title: 'Funnel by period (live)',
-  description: 'MQLs from HubSpot via Metabase, opportunities and new customers from the KPI sheet, per period.',
-  fn: (mqls, kpi) => {
+  description: 'MQLs from HubSpot via Metabase, opportunities and new customers from the KPI sheet, per period. Below new opportunities, HubSpot deals created in the period split into marketing-sourced new business, other new business and expansion (rows with sub = true); HubSpot counts deals moved in after month end, so the split can total more than the KPI sheet.',
+  fn: (mqls, kpi, opps_split) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
@@ -169,6 +169,8 @@ dash.calc('funnel_windows', {
       const k = kpi.filter((x) => ms.includes(x.month));
       out.push({ period, stage: 'MQLs', value: sum(mqls.filter((x) => ms.includes(x.month)), (x) => x.mqls) });
       out.push({ period, stage: 'New opportunities', value: sum(k, (x) => x.opps_new) });
+      ['Marketing-sourced new business', 'Other new business', 'Expansion'].forEach((b) =>
+        out.push({ period, stage: b, sub: true, value: sum(opps_split.filter((x) => x.bucket === b && ms.includes(x.month)), (x) => x.deals) }));
       out.push({ period, stage: 'Opportunities won', value: sum(k, (x) => x.opps_won) });
       out.push({ period, stage: 'New customers', value: sum(k, (x) => x.customers_new) });
     });
@@ -177,10 +179,10 @@ dash.calc('funnel_windows', {
 });
 
 dash.calc('funnel_windows_frozen', {
-  inputs: ['mqls_frozen', 'kpi'],
+  inputs: ['mqls_frozen', 'kpi', 'opps_split_frozen'],
   title: 'Funnel by period (board snapshot)',
-  description: 'As the live funnel, with MQLs as they stood on October 13, 2026.',
-  fn: (mqls_frozen, kpi) => {
+  description: 'As the live funnel, with MQLs as they stood on October 13, 2026 and the opportunity split as it stood on October 14, 2026.',
+  fn: (mqls_frozen, kpi, opps_split) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
@@ -191,6 +193,8 @@ dash.calc('funnel_windows_frozen', {
       const k = kpi.filter((x) => ms.includes(x.month));
       out.push({ period, stage: 'MQLs', value: sum(mqls_frozen.filter((x) => ms.includes(x.month)), (x) => x.mqls) });
       out.push({ period, stage: 'New opportunities', value: sum(k, (x) => x.opps_new) });
+      ['Marketing-sourced new business', 'Other new business', 'Expansion'].forEach((b) =>
+        out.push({ period, stage: b, sub: true, value: sum(opps_split.filter((x) => x.bucket === b && ms.includes(x.month)), (x) => x.deals) }));
       out.push({ period, stage: 'Opportunities won', value: sum(k, (x) => x.opps_won) });
       out.push({ period, stage: 'New customers', value: sum(k, (x) => x.customers_new) });
     });

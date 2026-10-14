@@ -2,7 +2,7 @@
 (function () {
   const { B, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   const state = { sel: 'Q3O', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
-  const LIVE = ['end_clients', 'mqls', 'pipeline_open'];
+  const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split'];
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
   const id = (x) => (state.data === 'frozen' && LIVE.includes(x) ? x + '_frozen' : x);
@@ -747,30 +747,37 @@
   };
 
   CARDS['c-funnel'] = {
-    kind: 'close', src: ['mqls', 'kpi'], data: () => [state.data === 'frozen' ? 'funnel_windows_frozen' : 'funnel_windows'],
+    kind: 'close', src: ['mqls', 'kpi', 'opps_split'], data: () => [state.data === 'frozen' ? 'funnel_windows_frozen' : 'funnel_windows'],
     draw(el, opt) {
       const fid = this.data()[0], d = need(el, [fid]); if (!d) return null;
       const s = S(), cur = d[fid].filter((r) => r.period === s.win), cmp = d[fid].filter((r) => r.period === s.winComp);
       const { w } = size(el, opt, 0), h = (opt && opt.h) || cur.length * 60 + 6, rowH = Math.min(60, (h - 6) / cur.length);
       const svg = svgFor(el, w, h);
-      const labW = d3.max(cur, (q) => textW(svg, q.stage, 'ub-lab')) + 16;
+      const labW = d3.max(cur, (q) => textW(svg, (q.sub ? '↳ ' : '') + q.stage, 'ub-lab') + (q.sub ? 14 : 0)) + 16;
       const x = d3.scaleLinear([0, d3.max(cur.concat(cmp), (q) => q.value) || 1], [0, w - labW - 170]);
       const tip = tooltip(el);
+      let lastMain = null;
       cur.forEach((q, i) => {
-        const y0 = i * rowH + 6, c = cmp[i];
-        svg.append('text').attr('x', 0).attr('y', y0 + 20).attr('class', 'ub-lab').text(q.stage);
-        svg.append('rect').attr('x', labW).attr('y', y0 + 4).attr('height', 22).attr('rx', 4).attr('width', Math.max(3, x(q.value))).attr('fill', B.peri)
+        const y0 = i * rowH + 6, c = cmp[i], sub = !!q.sub, ind = sub ? 14 : 0;
+        svg.append('text').attr('x', ind).attr('y', y0 + 20).attr('class', sub ? 'ub-tick' : 'ub-lab').attr('font-size', sub ? 12 : null).text(sub ? '↳ ' + q.stage : q.stage);
+        svg.append('rect').attr('x', labW).attr('y', y0 + 4).attr('height', sub ? 16 : 22).attr('rx', 4).attr('width', Math.max(3, x(q.value))).attr('fill', sub ? B.lav : B.peri).attr('opacity', sub ? 0.85 : 1)
           .on('mousemove', (ev) => tip.show(ev, q.stage, [[B.peri, WIN_LABEL[s.win], fmt.n(q.value)], [B.prior, WIN_LABEL[s.winComp], fmt.n(c.value)]])).on('mouseleave', () => tip.hide());
-        svg.append('rect').attr('x', labW).attr('y', y0 + 30).attr('height', 8).attr('rx', 3).attr('width', Math.max(3, x(c.value))).attr('fill', B.prior);
-        svg.append('text').attr('x', labW + Math.max(3, x(q.value)) + 8).attr('y', y0 + 20).attr('class', 'ub-val').text(fmt.n(q.value));
-        svg.append('text').attr('x', labW + Math.max(3, x(c.value)) + 8).attr('y', y0 + 38).attr('class', 'ub-tick').attr('font-size', 10).text(fmt.n(c.value));
-        const prev = cur[i - 1];
-        if (prev && prev.value && q.value <= prev.value) svg.append('text').attr('x', w - 2).attr('y', y0 + 20).attr('text-anchor', 'end').attr('class', 'ub-tick').text(d3.format('.0%')(q.value / prev.value) + ' of previous step');
+        svg.append('rect').attr('x', labW).attr('y', y0 + (sub ? 24 : 30)).attr('height', sub ? 6 : 8).attr('rx', 3).attr('width', Math.max(3, x(c.value))).attr('fill', B.prior);
+        svg.append('text').attr('x', labW + Math.max(3, x(q.value)) + 8).attr('y', y0 + (sub ? 17 : 20)).attr('class', 'ub-val').attr('font-size', sub ? 12 : null).text(fmt.n(q.value));
+        svg.append('text').attr('x', labW + Math.max(3, x(c.value)) + 8).attr('y', y0 + (sub ? 31 : 38)).attr('class', 'ub-tick').attr('font-size', 10).text(fmt.n(c.value));
+        if (sub) return;
+        if (lastMain && lastMain.value && q.value <= lastMain.value) svg.append('text').attr('x', w - 2).attr('y', y0 + 20).attr('text-anchor', 'end').attr('class', 'ub-tick').text(d3.format('.0%')(q.value / lastMain.value) + ' of previous step');
+        lastMain = q;
       });
       legend(el, [[B.peri, WIN_LABEL[s.win]], [B.prior, WIN_LABEL[s.winComp]]]);
-      return { columns: ['Stage', WIN_LABEL[s.win], WIN_LABEL[s.winComp]], rows: cur.map((q, i) => [q.stage, q.value, cmp[i].value]) };
+      return { columns: ['Stage', WIN_LABEL[s.win], WIN_LABEL[s.winComp]], rows: cur.map((q, i) => [(q.sub ? '  of which: ' : '') + q.stage, q.value, cmp[i].value]) };
     },
-    note() { return 'New opportunities include reseller and outbound deals, so they can exceed inbound MQLs. New customers are all new paying customers in Stripe, from any source.'; },
+    note() {
+      const fid = this.data()[0], f = rows(fid); if (!f) return '';
+      const s = S(), c = f.filter((r) => r.period === s.win), g = (n) => (pick(c, (r) => r.stage === n) || {}).value || 0;
+      const split = d3.sum(c.filter((r) => r.sub), (r) => r.value);
+      return `New opportunities is the KPI sheet's month-end count (${fmt.n(g('New opportunities'))}) and includes upsell deals in the Expansion pipeline. The split below it is HubSpot today (${fmt.n(split)} deals): marketing-sourced new business came from the same channels as MQLs; other new business is reseller, sales-entered, direct-traffic and referral deals that never pass through an MQL; expansion is upsell to existing customers. HubSpot runs higher because deals moved in from the Qualification pipeline after month end keep their original created date. New customers are all new paying customers in Stripe, from any source.`;
+    },
   };
 
   // ---------- Internal
@@ -1083,7 +1090,7 @@
     'c-mqlchannels': () => { const mq = rows(id('mqls')); if (!mq) return ''; const ms = WIN_MONTHS[S().win];
       const by = d3.rollups(mq.filter((r) => ms.includes(r.month)), (v) => d3.sum(v, (r) => +r.mqls), (r) => r.source).sort((a, z) => z[1] - a[1]); return by.length ? `${by[0][0]} is the top MQL channel` : ''; },
     'c-funnel': () => { const f = rows(state.data === 'frozen' ? 'funnel_windows_frozen' : 'funnel_windows'); if (!f) return ''; const c = f.filter((r) => r.period === S().win);
-      const g = (n) => (pick(c, (r) => r.stage === n) || {}).value; return `${g('New customers')} new customers from ${g('New opportunities')} new opportunities`; },
+      const g = (n) => (pick(c, (r) => r.stage === n) || {}).value; return `${g('New customers')} new customers from ${g('New opportunities')} new opportunities; ${g('Marketing-sourced new business')} new-business deals came from marketing channels`; },
   };
 
   // ---------- tables
@@ -1115,7 +1122,7 @@
   }
 
   // ---------- as-of footers
-  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase' };
+  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase' };
   function footer(c) {
     const info = rows('snapshot_info') || [];
     const parts = (CARDS[c].src || []).filter((x) => x !== 'goals').map((x) => {

@@ -105,3 +105,5 @@
 #ub .ub-asof { margin: 0; color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
 #ub .ub-card-title { text-wrap: balance; }
 #ub svg .ub-callout-text { fill: #fcd34d; font-size: 11.5px; font-weight: 600; }
+#ub .ub-status-open-for-year-end { color: var(--u-amber, #fcd34d); }
+#ub .ub-status-explained { color: var(--u-lav); }
