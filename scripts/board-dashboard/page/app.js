@@ -1,20 +1,44 @@
 // Page: controls, card registry (draw + "what changed" note + sources), copy-to-deck wiring.
 (function () {
-  const { B, setTheme, fmt, spec, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
-  const state = { theme: 'light', sel: 'Q3O', cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
+  const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split'];
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
   const id = (x) => (state.data === 'frozen' && LIVE.includes(x) ? x + '_frozen' : x);
-  const rows = (x) => { const d = dash.data(x); return d.status === 'ok' && Array.isArray(d.data) ? d.data : null; };
+  const raw = (x) => { const d = dash.data(x); return d.status === 'ok' && Array.isArray(d.data) ? d.data : null; };
+  // Period calcs are rerun on the range in the date control (see calcs.js); everything else is read as stored.
+  const DYN = {
+    booking_totals: () => [['bookings'], (bk) => UBC.booking_totals(bk, { __ub: true, w: S().bookW })],
+    booking_groups: () => [['bookings'], (bk) => UBC.booking_groups(dyn('booking_totals'), bk)],
+    booking_daily: () => [['bookings'], (bk) => UBC.booking_daily(dyn('booking_totals'), bk)],
+    mrr_windows: () => [['kpi'], (k) => UBC.mrr_windows(k, { __ub: true, w: S().monthW })],
+    revenue_windows: () => [['revenue'], (r) => UBC.revenue_windows(r, { __ub: true, w: S().monthW })],
+    pipeline_windows: () => [['kpi'], (k) => UBC.pipeline_windows(k, { __ub: true, w: S().monthW })],
+    funnel_windows: () => [['mqls', 'kpi', 'opps_split'], (m, k, o) => UBC.funnel_windows(m, k, o, { __ub: true, w: S().monthW })],
+    funnel_windows_frozen: () => [['mqls_frozen', 'kpi', 'opps_split_frozen'], (m, k, o) => UBC.funnel_windows_frozen(m, k, o, { __ub: true, w: S().monthW })],
+  };
+  const dynCache = {};
+  function dyn(x) {
+    const [ins, f] = DYN[x](), args = ins.map(raw);
+    if (args.some((v) => !v)) return null;
+    const dep = x === 'booking_groups' || x === 'booking_daily' ? dyn('booking_totals') : null;
+    const key = JSON.stringify([S().bookW, S().monthW]), c = dynCache[x];
+    if (c && c.key === key && c.dep === dep && c.args.every((v, i) => v === args[i])) return c.out;
+    const out = f(...args);
+    dynCache[x] = { key, args, dep, out };
+    return out;
+  }
+  const rows = (x) => (DYN[x] ? (raw(x) ? dyn(x) : null) : raw(x));
   const pick = (arr, f) => (arr || []).find(f);
   const chg = (a, b) => (a == null || b == null || !b) ? null : (a - b) / Math.abs(b);
   const card = (c) => document.getElementById(c);
   const body = (c) => card(c).querySelector('.ub-body');
-  const S = () => spec(state.sel, state.cmp);
+  const S = () => spec();
   const selMonths = () => S().months || WIN_MONTHS[S().win];
   const lastOf = (w) => (WIN_MONTHS[w] || []).slice(-1)[0];
-  const TREND = (m) => m >= '2025-07' && m <= '2026-09';
+  // Trend charts: 15 closed months ending with the range's last closed month (longer if the range is).
+  const TREND = (m) => { const ms = WIN_MONTHS.curM || [], z = ms[ms.length - 1], a = addMonths(z + '-01', -14).slice(0, 7); return m >= (ms[0] < a ? ms[0] : a) && m <= z; };
   const up = (a, b) => (a >= b ? 'up' : 'down');
 
   // Shows the loading bar or the failure line; returns the rows of every dataset once all are ready.
@@ -22,7 +46,7 @@
     const out = {};
     for (const x of ids) {
       const d = dash.data(x);
-      if (d.status === 'ok') { out[x] = d.data; continue; }
+      if (d.status === 'ok') { out[x] = DYN[x] ? dyn(x) : d.data; if (out[x]) continue; }
       if (['error', 'connect', 'declined'].includes(d.status)) {
         el.classList.remove('dash-skeleton');
         d3.select(el).selectAll(':scope > svg.ub-chart').remove();
@@ -72,7 +96,13 @@
   const sparkEnd = () => { const s = S(); return lastOf(s.win); };
   const kSeries = (kpi, f) => monthsTo(sparkEnd(), 12).map((m) => { const k = pick(kpi, (x) => x.month === m); return k ? f(k) : null; });
   const rSeries = (rev, f) => monthsTo(sparkEnd(), 12).map((m) => { const r = pick(rev, (x) => x.month === m); return r ? f(r) : null; });
-  const bSeries = (bk, f) => monthsTo(state.sel === 'Q3O' ? '2026-10' : sparkEnd(), 12).map((m) => f(bk.filter((b) => b.category === 'Software' && b.date.startsWith(m))));
+  const bSeries = (bk, f) => monthsTo(S().end.slice(0, 7), 12).map((m) => f(bk.filter((b) => b.category === 'Software' && b.date.startsWith(m))));
+  // Last full calendar quarter's software bookings, for pipeline coverage whatever range is picked.
+  function lastQ() {
+    const a = addMonths(qStart(S().today), -3), z = addDays(addMonths(a, 3), -1), q = Math.floor((+a.slice(5, 7) - 1) / 3) + 1;
+    const r = UBC.booking_totals(raw('bookings') || [], { __ub: true, w: { LQ: [a, z] } })[0];
+    return { tcv: r ? r.tcv : 0, label: `Q${q} ${a.slice(0, 4)}` };
+  }
   const recurring = (r) => r.subscription + r.consumption + r.dsp + r.mail + r.services_retainer;
 
   // ---------- card registry
@@ -97,7 +127,7 @@
       const b = winRows(bt, s.book), bc = winRows(bt, s.bookComp);
       if (b && bc && b.avg_deal > bc.avg_deal) items.push({ big: fmt.usd(b.avg_deal), text: `Average software deal, up ${fmt.pct(chg(b.avg_deal, bc.avg_deal)).slice(1)} from ${fmt.usd(bc.avg_deal)}: larger contracts as we move up-market.` });
       const e = pick(ec, (x) => x.month === s.ecMonth), maxPrior = d3.max(ec.filter((x) => x.month < s.ecMonth), (x) => +x.end_clients);
-      if (e && +e.end_clients > maxPrior) items.push({ big: fmt.n(+e.end_clients), text: `Reseller end clients in ${s.ecMonth === '2026-10' ? 'October to date' : fmt.monthLong(s.ecMonth)}, a new high.` });
+      if (e && +e.end_clients > maxPrior) items.push({ big: fmt.n(+e.end_clients), text: `Reseller end clients in ${openLabel(s.ecMonth, s.openMonth)}, a new high.` });
       if (b && bc && b.tcv > bc.tcv) items.push({ big: fmt.usd(b.tcv), text: `Software bookings, ${fmt.pct(chg(b.tcv, bc.tcv))} vs ${WIN_LABEL[s.bookComp]}.` });
       const show = items.slice(0, 4);
       const { w } = size(el, opt, 0);
@@ -538,10 +568,10 @@
       return { columns: ['Block', 'Stage', 'Deals', 'Pipeline value'], rows: blocks.flatMap((b) => p.filter((r) => r.block === b).sort((a, c) => a.stage_order - c.stage_order).map((r) => [b, r.stage, r.deals, fmt.usdFull(r.pipeline_value)])).concat([['Total', '', n, fmt.usdFull(tot)]]) };
     },
     note() {
-      const p = rows(id('pipeline_open')), bt = rows('booking_totals'); if (!p || !bt) return '';
-      const tot = d3.sum(p, (r) => +r.pipeline_value), n = d3.sum(p, (r) => +r.deals), q3 = winRows(bt, 'Q3');
+      const p = rows(id('pipeline_open')); if (!p || !rows('bookings')) return '';
+      const tot = d3.sum(p, (r) => +r.pipeline_value), n = d3.sum(p, (r) => +r.deals), lq = lastQ();
       const late = d3.sum(p.filter((r) => /Proposal|Decision|Contract|Negotiation/.test(r.stage)), (r) => +r.pipeline_value);
-      return `${fmt.usd(tot)} open across ${n} deals, ${d3.format('.1f')(tot / q3.tcv)}x Q3 software bookings. ${fmt.usd(late)} is at proposal stage or later. A Q4 bookings target would turn this into a coverage ratio.`;
+      return `${fmt.usd(tot)} open across ${n} deals, ${d3.format('.1f')(tot / lq.tcv)}x ${lq.label} software bookings. ${fmt.usd(late)} is at proposal stage or later. A Q4 bookings target would turn this into a coverage ratio.`;
     },
   };
 
@@ -613,11 +643,11 @@
       const hl = selMonths();
       const tip = tooltip(el), bw = x.bandwidth(), every = Math.ceil(data.length / Math.max(2, Math.floor((w - left - right) / 50)));
       data.forEach((q, i) => {
-        const on = hl.includes(q.month), g = svg.append('g').attr('opacity', on ? 1 : 0.5), c = q.month === '2026-10' ? B.lav : B.deep;
+        const on = hl.includes(q.month), g = svg.append('g').attr('opacity', on ? 1 : 0.5), c = q.month === S().openMonth ? B.lav : B.deep;
         g.append('rect').attr('x', x(q.month)).attr('width', bw).attr('y', y(q.end_clients)).attr('height', y(0) - y(q.end_clients)).attr('rx', 3).attr('fill', c);
         if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(q.end_clients) + 14).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', bw > 30 ? 11 : 9).attr('fill', B.fg).text(q.end_clients);
         if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(0) - 6).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', 9).attr('fill', B.soft).text(q.resellers);
-        if (i % every === 0 || on || i === data.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').attr('font-size', 11).text(q.month === '2026-10' ? 'Oct*' : fmt.month(q.month));
+        if (i % every === 0 || on || i === data.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').attr('font-size', 11).text(q.month === S().openMonth ? fmt.month(q.month).slice(0, 3) + '*' : fmt.month(q.month));
         svg.append('rect').attr('class', 'ub-hit').attr('x', x(q.month)).attr('width', bw).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent')
           .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients', fmt.n(q.end_clients)], [null, 'Resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed'], [null, 'Source', q.src === 'Sheet' ? 'Wins tab as published' : 'Metabase']])).on('mouseleave', () => tip.hide());
       });
@@ -628,15 +658,15 @@
         if (bw >= 26 || i === pts.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', y2(q.consumption) - 8).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 10).attr('fill', B.mint).text(fmt.usdS(q.consumption));
       });
       const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
-      callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === '2026-10' ? ', half a month in' : ''}`, { lift: 22 });
-      legend(el, [[B.deep, 'End clients (10+ resolutions)'], [B.soft, 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, 'October to date']]);
+      callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === S().openMonth ? ', month to date' : ''}`, { lift: 22 });
+      legend(el, [[B.deep, 'End clients (10+ resolutions)'], [B.soft, 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
       return { columns: ['Month', 'Reseller end clients', 'Resellers with active clients', 'Consumption revenue', 'Source'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '', q.src === 'Sheet' ? 'Wins tab' : 'Metabase']) };
     },
     note() {
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth), c = pick(ec, (x) => x.month === s.ecComp);
       if (!e || !c) return '';
-      return `${e.end_clients} end clients in ${s.ecMonth === '2026-10' ? 'October to date' : fmt.monthLong(s.ecMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Activity dipped in June and July; October is already a high with half the month to go. Months before September 2025 are the Wins tab as published.`;
+      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Activity dipped in June and July; October is already a high with half the month to go. Months before September 2025 are the Wins tab as published.`;
     },
   };
 
@@ -678,7 +708,7 @@
       const s = S(), SR = [{ key: 'direct', label: 'Direct', color: B.peri }, { key: 'reseller', label: 'Reseller', color: B.sky }];
       const data = d.kpi.filter((k) => TREND(k.month)).map((k) => ({ month: k.month, direct: k.direct_cancellation + (k.direct_contraction || 0), reseller: k.reseller_cancellation + (k.reseller_contraction || 0), n: k.customers_churned }));
       legend(el, SR.map((x) => [x.color, x.label]));
-      const d26 = data.filter((q) => q.month >= '2026-01'), worst = d26.reduce((a, q) => (q.direct + q.reseller > a.direct + a.reseller ? q : a), d26[0]);
+      const inR = data.filter((q) => WIN_MONTHS[s.win].includes(q.month)), d26 = inR.length ? inR : data, worst = d26.reduce((a, q) => (q.direct + q.reseller > a.direct + a.reseller ? q : a), d26[0]);
       const lg = (rows('churn_log') || []).filter((x) => x.churn_month === worst.month).sort((a, z) => z.mrr - a.mrr).slice(0, 2).map((x) => x.customer.replace(/\s*\(.*\)/, '').split(' ')[0]);
       const notes = [{ month: worst.month, text: lg.length ? `${lg.join(' and ')} left` : 'Largest month' }];
       stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 310, notes });
@@ -719,7 +749,7 @@
     note() {
       const log = rows('churn_log'); if (!log) return '';
       const s = S(), ms = selMonths(), r = log.filter((x) => ms.includes(x.churn_month));
-      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${s.months ? 'July through October to date' : WIN_LABEL[s.win]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}. Stripe also shows Ticketsauce (September, $500), which is not in the log yet.`;
+      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${WIN_LABEL[s.book]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}. Stripe also shows Ticketsauce (September, $500), which is not in the log yet.`;
     },
   };
 
@@ -733,7 +763,7 @@
       const data = months.map((m) => { const o = { month: m }; SRC.forEach(([x]) => { o[x] = d3.sum(mq.filter((r) => r.month === m && r.source === x), (r) => +r.mqls); }); return o; });
       const SR = SRC.filter(([x]) => data.some((q) => q[x])).map(([x, c]) => ({ key: x, label: x, color: c }));
       legend(el, SR.map((x) => [x.color, x.label]));
-      stackedBars(el, { ...opt, rows: data, series: SR, highlight: selMonths(), yfmt: fmt.n, lab: fmt.n, height: 320, xlab: (m) => (m === '2026-10' ? 'Oct (MTD)' : fmt.month(m)) });
+      stackedBars(el, { ...opt, rows: data, series: SR, highlight: selMonths(), yfmt: fmt.n, lab: fmt.n, height: 320, xlab: (m) => (m === S().openMonth ? fmt.month(m).slice(0, 3) + ' (MTD)' : fmt.month(m)) });
       return { columns: ['Month'].concat(SR.map((x) => x.label), ['Total']), rows: data.map((q) => [fmt.monthLong(q.month)].concat(SR.map((x) => q[x.key]), [d3.sum(SR, (x) => q[x.key])])) };
     },
     note() {
@@ -923,25 +953,27 @@
     kind: 'static', src: ['bookings'], data: () => ['bookings'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const sw = d.bookings.filter((b) => b.category === 'Software' && b.date >= '2026-01-01');
+      // The calendar year of the range's end date, with quarters that have started (the open one marked to date).
+      const s = S(), Y = s.end.slice(0, 4), tq = s.today.slice(0, 4) === Y ? Math.floor((+s.today.slice(5, 7) - 1) / 3) + 1 : 4;
+      const sw = d.bookings.filter((b) => b.category === 'Software' && b.date.startsWith(Y));
       const months = [...new Set(sw.map((b) => b.date.slice(0, 7)))].sort();
       const data = months.map((m) => { const r = sw.filter((b) => b.date.startsWith(m)); return { month: m, tcv: d3.sum(r, (b) => b.tcv), n: r.filter((b) => b.tcv > 0).length }; });
-      const qs = [['Q1', '01', '03'], ['Q2', '04', '06'], ['Q3', '07', '09'], ['Q4 to date', '10', '12']].map(([q, a, z]) => { const r = sw.filter((b) => b.date.slice(5, 7) >= a && b.date.slice(5, 7) <= z); return { q, tcv: d3.sum(r, (b) => b.tcv), n: r.filter((b) => b.tcv > 0).length }; });
+      const qs = [['Q1', '01', '03'], ['Q2', '04', '06'], ['Q3', '07', '09'], ['Q4', '10', '12']].slice(0, tq).map(([q, a, z], i) => [i + 1 === tq && s.today.slice(0, 4) === Y ? q + ' to date' : q, a, z]).map(([q, a, z]) => { const r = sw.filter((b) => b.date.slice(5, 7) >= a && b.date.slice(5, 7) <= z); return { q, tcv: d3.sum(r, (b) => b.tcv), n: r.filter((b) => b.tcv > 0).length }; });
       const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h);
       const split = w > 700 ? 0.64 : 1, w1 = w * split - (split < 1 ? 16 : 0);
-      const y = d3.scaleLinear([0, d3.max(data, (q) => q.tcv) * 1.4], [h - 44, 14]);
+      const y = d3.scaleLinear([0, (d3.max(data, (q) => q.tcv) || 1) * 1.4], [h - 44, 14]);
       const x = d3.scaleBand(data.map((q) => q.month), [0, w1]).padding(0.22);
-      svg.append('text').attr('x', 0).attr('y', 10).attr('class', 'ub-eyebrow').text('BY MONTH');
+      svg.append('text').attr('x', 0).attr('y', 10).attr('class', 'ub-eyebrow').text('BY MONTH, ' + Y);
       const tip = tooltip(el);
       data.forEach((q) => {
         svg.append('rect').attr('x', x(q.month)).attr('width', x.bandwidth()).attr('y', y(q.tcv)).attr('height', y(0) - y(q.tcv)).attr('rx', 3).attr('fill', B.peri)
           .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[B.peri, 'TCV', fmt.usdFull(q.tcv)], [null, 'Deals', fmt.n(q.n)]])).on('mouseleave', () => tip.hide());
         svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', y(q.tcv) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.usdS(q.tcv));
-        svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', h - 26).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 11).text(d3.utcFormat('%b')(new Date(q.month + '-01T00:00:00Z')) + (q.month === '2026-10' ? '*' : ''));
+        svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', h - 26).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 11).text(d3.utcFormat('%b')(new Date(q.month + '-01T00:00:00Z')) + (q.month === s.openMonth ? '*' : ''));
         svg.append('text').attr('x', x(q.month) + x.bandwidth() / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 10).text(q.n + ' deals');
       });
       const bm = data.reduce((a, q) => (q.tcv > a.tcv ? q : a), data[0]);
-      callout(svg, w1, x(bm.month) + x.bandwidth() / 2, y(bm.tcv) - 16, 'Best month of 2026', { lift: 16 });
+      if (bm) callout(svg, w1, x(bm.month) + x.bandwidth() / 2, y(bm.tcv) - 16, 'Best month of ' + Y, { lift: 16 });
       if (split < 1) {
         const x2 = d3.scaleBand(qs.map((q) => q.q), [w1 + 32, w]).padding(0.25), y2 = d3.scaleLinear([0, d3.max(qs, (q) => q.tcv) * 1.2], [h - 44, 14]);
         svg.append('text').attr('x', w1 + 32).attr('y', 10).attr('class', 'ub-eyebrow').text('BY QUARTER');
@@ -952,9 +984,9 @@
           svg.append('text').attr('x', x2(q.q) + x2.bandwidth() / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 10).text(q.n + ' deals');
         });
       }
-      return { columns: ['Period', 'Software TCV', 'Deals'], rows: data.map((q) => [fmt.monthLong(q.month), fmt.usdFull(q.tcv), q.n]).concat(qs.map((q) => [q.q + ' 2026', fmt.usdFull(q.tcv), q.n])) };
+      return { columns: ['Period', 'Software TCV', 'Deals'], rows: data.map((q) => [fmt.monthLong(q.month), fmt.usdFull(q.tcv), q.n]).concat(qs.map((q) => [q.q + ' ' + Y, fmt.usdFull(q.tcv), q.n])) };
     },
-    note() { return 'Software bookings by signed date, as in the May deck’s Sales KPIs slides. October (*) is month to date. The May deck counted the $5K Hestan Napa web project in February; it is a services project and is left out here.'; },
+    note() { return 'Software bookings by signed date, as in the May deck’s Sales KPIs slides. The open month (*) is month to date. The May deck counted the $5K Hestan Napa web project in February; it is a services project and is left out here.'; },
   };
 
   CARDS['c-dealmix'] = {
@@ -1035,7 +1067,7 @@
 
   // ---------- takeaway titles: the conclusion first; the chart's name moves to the line under it
   const TAKE = {
-    'c-highlights': () => `${S().label}: what went well`,
+    'c-highlights': () => `${S().short}: what went well`,
     'c-headline': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       return `Subscription MRR ${up(m.license_ending, c.license_ending)} ${fmt.pct(chg(m.license_ending, c.license_ending)).slice(1)} to ${fmt.usd(m.license_ending)}, with ${fmt.signedUsd(m.net_new)} net new`; },
     'c-goals': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const e = pick(ec, (x) => x.month === S().ecMonth) || ec[ec.length - 1];
@@ -1057,15 +1089,15 @@
       return `${state.channel === 'Total' ? '' : state.channel + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
     'c-salestiles': () => { const bt = rows('booking_totals'); if (!bt) return ''; const s = S(), b = winRows(bt, s.book), c = winRows(bt, s.bookComp);
       return `Software bookings ${up(b.tcv, c.tcv)} ${fmt.pct(chg(b.tcv, c.tcv)).slice(1)} to ${fmt.usd(b.tcv)}; average deal ${fmt.usd(b.avg_deal)}`; },
-    'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const sw = bk.filter((b) => b.category === 'Software' && b.date >= '2026-01-01');
+    'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const Y = S().end.slice(0, 4), sw = bk.filter((b) => b.category === 'Software' && b.date.startsWith(Y));
       const by = d3.rollups(sw, (v) => d3.sum(v, (b) => b.tcv), (b) => b.date.slice(0, 7)).sort((a, z) => z[1] - a[1])[0];
-      return by ? `${fmt.monthLong(by[0]).split(' ')[0]} was the biggest bookings month of 2026 at ${fmt.usd(by[1])}` : ''; },
+      return by ? `${fmt.monthLong(by[0]).split(' ')[0]} was the biggest bookings month of ${Y} at ${fmt.usd(by[1])}` : ''; },
     'c-groups': () => { const g = rows('booking_groups'); if (!g) return ''; const s = S(), r = g.filter((x) => x.period === s.book && x.dimension === state.dim).sort((a, z) => z.tcv - a.tcv);
       const tot = d3.sum(r, (x) => x.tcv); return r.length ? `${r[0].group} drove ${d3.format('.0%')(r[0].tcv / tot)} of ${WIN_LABEL[s.book]} TCV` : ''; },
     'c-dealmix': () => { const bt = rows('booking_totals'); if (!bt) return ''; const b = winRows(bt, S().book); return `${d3.format('.0%')(b.reseller_tcv / (b.tcv || 1))} of software TCV came through resellers`; },
     'c-topdeals': () => CARDS['c-topdeals'].note().replace(/\.$/, ''),
-    'c-pipeline': () => { const p = rows(id('pipeline_open')), bt = rows('booking_totals'); if (!p || !bt) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
-      return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / winRows(bt, 'Q3').tcv)}x Q3 software bookings`; },
+    'c-pipeline': () => { const p = rows(id('pipeline_open')); if (!p || !rows('bookings')) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
+      const lq = lastQ(); return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / lq.tcv)}x ${lq.label} software bookings`; },
     'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
     'c-mayfollow': () => { const m = rows('may_pipeline'); if (!m) return ''; const open = m.filter((x) => x.value_now > 0); return `${open.length} of ${m.length} May deals still open, led by Liberty Mutual at ${fmt.usd(open[0] ? open[0].value_now : 0)}`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
@@ -1139,7 +1171,7 @@
     const s = S();
     if (kind === 'book') return `${WIN_LABEL[s.book]} vs ${WIN_LABEL[s.bookComp]}`;
     if (kind === 'close') return `${WIN_LABEL[s.win]} vs ${WIN_LABEL[s.winComp]}`;
-    if (kind === 'trend') return `Monthly, July 2025 to September 2026 · highlighted: ${WIN_LABEL[s.win]}`;
+    if (kind === 'trend') { const k = (raw('kpi') || []).map((r) => r.month).filter(TREND); return `Monthly, ${fmt.monthLong(k[0] || s.win)} to ${fmt.monthLong(k[k.length - 1] || s.win)} · highlighted: ${WIN_LABEL[s.win]}`; }
     if (kind === 'live') return state.data === 'frozen' ? 'Open today, board snapshot of October 13, 2026' : 'Open right now (live)';
     return '';
   }
@@ -1148,7 +1180,16 @@
   const bind = (sel, key) => $$(sel + ' button').forEach((b) => b.addEventListener('click', () => { state[key] = b.dataset.v; render(); }));
   try { const t = localStorage.getItem('ub-theme'); if (t === 'light' || t === 'dark') state.theme = t; } catch (e) { /* storage blocked: keep the default */ }
   $$('.ub-seg-theme button').forEach((b) => b.addEventListener('click', () => { state.theme = b.dataset.v; try { localStorage.setItem('ub-theme', state.theme); } catch (e) { /* not saved */ } render(); }));
-  bind('.ub-seg-period', 'sel'); bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim');
+  // Date range: a preset, or Custom once either date is edited. Remembered per viewer.
+  const saveRange = () => { try { localStorage.setItem('ub-range', JSON.stringify({ preset: state.preset, start: state.start, end: state.end, cmp: state.cmp })); } catch (e) { /* not saved */ } };
+  try { const r = JSON.parse(localStorage.getItem('ub-range') || 'null'); if (r && PRESETS.some((p) => p[0] === r.preset)) Object.assign(state, { preset: r.preset, start: r.start, end: r.end, cmp: r.cmp === 'yoy' ? 'yoy' : 'prior' }); } catch (e) { /* keep defaults */ }
+  $('.ub-preset').addEventListener('change', (ev) => { state.preset = ev.target.value; saveRange(); render(); });
+  ['.ub-start', '.ub-end'].forEach((sel) => $(sel).addEventListener('change', () => {
+    const a = $('.ub-start').value, z = $('.ub-end').value; if (!a || !z) return;
+    Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
+  }));
+  $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;
@@ -1166,14 +1207,28 @@
     $$('[data-ds-table]').forEach((el) => el.setAttribute('data-source', dsMap(el.dataset.dsTable)));
   }
 
+  // Today in the viewer's time zone; month-close numbers stop at the last month the KPI sheet has closed.
+  function applyRange() {
+    const n = new Date(), today = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    const k = (raw('kpi') || []).filter((r) => r.sub_ending != null).map((r) => r.month).sort();
+    const lastClosed = k.length ? k[k.length - 1] : addMonths(monthStart(today), -1).slice(0, 7);
+    let [start, end] = state.preset === 'custom' && state.start && state.end ? [state.start, state.end] : presetRange(state.preset, today);
+    if (end > today) end = today;
+    if (start > end) start = end;
+    if (state.preset !== 'custom') Object.assign(state, { start, end });
+    return setRange({ preset: state.preset, start, end, cmp: state.cmp, today, lastClosed, openMonth: today.slice(0, 7) });
+  }
+
   function render() {
-    const s = S();
+    const s = applyRange();
+    $('.ub-preset').value = state.preset;
+    $('.ub-start').value = s.start; $('.ub-end').value = s.end; $('.ub-start').max = s.today; $('.ub-end').max = s.today;
     setTheme(state.theme); paintSeries();
     document.getElementById('ub').dataset.theme = state.theme;
     $$('.ub-seg-theme button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.theme));
     markSources();
-    $$('.ub-seg-period button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.sel));
-    $$('.ub-seg-cmp button').forEach((b) => { b.setAttribute('aria-pressed', b.dataset.v === state.cmp); b.disabled = state.sel === 'YTD' && b.dataset.v === 'prior'; });
+    $$('.ub-seg-cmp button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.cmp));
+    $('.ub-cmplabel').textContent = `vs ${WIN_LABEL[s.bookComp]}`;
     $$('.ub-seg-data button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.data));
     $$('.ub-tabs button').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === state.tab));
     $$('.ub-page').forEach((p) => { p.hidden = p.id !== state.tab; });

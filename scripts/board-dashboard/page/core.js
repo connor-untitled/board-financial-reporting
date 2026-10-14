@@ -35,26 +35,98 @@
     date: (d) => d3.utcFormat('%b %-d, %Y')(new Date(d + 'T00:00:00Z')),
   };
 
-  // Picker choices. book = signed-date window for deals; win = whole months for month-close numbers.
-  const BASE = {
-    Q2: { label: 'Q2 2026', book: 'Q2', win: 'Q2', prior: ['Q1', 'Q1'], yoy: ['Q2_25', 'Q2_25'], ec: ['2026-06', '2026-03', '2025-09'] },
-    Q3: { label: 'Q3 2026', book: 'Q3', win: 'Q3', prior: ['Q2', 'Q2'], yoy: ['Q3_25', 'Q3_25'], ec: ['2026-09', '2026-06', '2025-09'] },
-    Q3O: { label: 'Q3 2026 + October to date', book: 'Q3O', win: 'Q3', prior: ['Q2O', 'Q2'], yoy: ['Q3O_25', 'Q3_25'], ec: ['2026-10', '2026-06', '2025-10'],
-      months: ['2026-07', '2026-08', '2026-09', '2026-10'],
-      closeNote: 'October is still open, so bookings, end clients and churns run through October to date, while MRR, revenue, customer counts and MQLs close at September.' },
-    YTD: { label: '2026 year to date', book: 'YTD', win: 'YTD', prior: ['YTD_25', 'YTD_25'], yoy: ['YTD_25', 'YTD_25'], ec: ['2026-09', '2025-09', '2025-09'],
-      closeNote: 'Year to date runs January through September for month-close numbers and through the latest signed deal for bookings.' },
-  };
-  function spec(sel, cmp) {
-    const b = BASE[sel], c = cmp === 'yoy' || sel === 'YTD' ? b.yoy : b.prior;
-    return { ...b, bookComp: c[0], winComp: c[1], ecMonth: b.ec[0], ecComp: cmp === 'yoy' || sel === 'YTD' ? b.ec[2] : b.ec[1] };
+  // ---------- date ranges
+  // A range is two ISO dates. Daily sources (bookings, churns, end clients) use it as is; month-close sources
+  // (MRR, revenue, customers, pipeline, MQLs) use the closed months that sit mostly inside it.
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const D = (s) => new Date(s + 'T00:00:00Z');
+  const ym = (s) => s.slice(0, 7);
+  const dim = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const addDays = (s, n) => iso(new Date(D(s).getTime() + n * 864e5));
+  const monthStart = (s) => ym(s) + '-01';
+  const monthEnd = (s) => { const [y, m] = s.split('-').map(Number); return `${ym(s)}-${String(dim(y, m)).padStart(2, '0')}`; };
+  function addMonths(s, n) {
+    const [y, m, d] = s.split('-').map(Number), t = new Date(Date.UTC(y, m - 1 + n, 1));
+    const ty = t.getUTCFullYear(), tm = t.getUTCMonth() + 1, end = s === monthEnd(s);
+    return `${ty}-${String(tm).padStart(2, '0')}-${String(end ? dim(ty, tm) : Math.min(d, dim(ty, tm))).padStart(2, '0')}`;
   }
-  const WIN_LABEL = { Q1: 'Q1 2026', Q2: 'Q2 2026', Q3: 'Q3 2026', Aug: 'August 2026', Sep: 'September 2026', Oct: 'October 2026 to date', SepTD: 'September 2026, same days', Q3O: 'Q3 2026 + October to date', Q2O: 'Q2 2026 + July, same days', Q3O_25: 'Q3 2025 + October, same days',
-    YTD: '2026 year to date', Q1_25: 'Q1 2025', Q2_25: 'Q2 2025', Q3_25: 'Q3 2025', Sep_25: 'September 2025', Oct_25: 'October 2025, same days', YTD_25: '2025, same period' };
-  const WIN_MONTHS = { Q1: ['2026-01', '2026-02', '2026-03'], Q2: ['2026-04', '2026-05', '2026-06'], Q3: ['2026-07', '2026-08', '2026-09'], Aug: ['2026-08'], Sep: ['2026-09'],
-    YTD: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'],
-    Q1_25: ['2025-01', '2025-02', '2025-03'], Q2_25: ['2025-04', '2025-05', '2025-06'], Q3_25: ['2025-07', '2025-08', '2025-09'], Sep_25: ['2025-09'],
-    YTD_25: ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05', '2025-06', '2025-07', '2025-08', '2025-09'], Oct: ['2026-10'] };
+  const qStart = (s) => { const [y, m] = s.split('-').map(Number); return `${y}-${String(Math.floor((m - 1) / 3) * 3 + 1).padStart(2, '0')}-01`; };
+  const daysBetween = (a, z) => Math.round((D(z) - D(a)) / 864e5) + 1;
+  const monthsIn = (a, z) => { const out = []; for (let m = monthStart(a); m <= z; m = addMonths(m, 1)) out.push(ym(m)); return out; };
+  const nm = (m, o) => d3.utcFormat(o || '%b')(D(m + '-01'));
+
+  const PRESETS = [
+    ['l90', 'Last 90 days'], ['mtd', 'Month to date'], ['last_m', 'Last month'], ['qtd', 'Quarter to date'], ['last_q', 'Last quarter'],
+    ['ytd', 'Year to date'], ['l12m', 'Last 12 months'], ['last_y', 'Last year'], ['custom', 'Custom range'],
+  ];
+  // Prior-period step per preset: calendar presets step back one calendar unit, rolling ones by their own length.
+  const STEP = { mtd: 1, last_m: 1, qtd: 3, last_q: 3, ytd: 12, last_y: 12, l12m: 12 };
+  function presetRange(p, today) {
+    const y = today.slice(0, 4);
+    switch (p) {
+      case 'mtd': return [monthStart(today), today];
+      case 'last_m': { const s = addMonths(monthStart(today), -1); return [s, monthEnd(s)]; }
+      case 'qtd': return [qStart(today), today];
+      case 'last_q': { const s = addMonths(qStart(today), -3); return [s, addDays(addMonths(s, 3), -1)]; }
+      case 'ytd': return [`${y}-01-01`, today];
+      case 'l12m': { const s = addMonths(monthStart(today), -12); return [s, addDays(monthStart(today), -1)]; }
+      case 'last_y': return [`${+y - 1}-01-01`, `${+y - 1}-12-31`];
+      case 'l90': default: return [addDays(today, -89), today];
+    }
+  }
+  // Whole calendar months (first day to last day), e.g. a custom Jul 1 to Sep 30, step back by their own month count.
+  const wholeMonths = (a, z) => (a === monthStart(a) && z === monthEnd(z) ? monthsIn(a, z).length : 0);
+  function compareRange(a, z, preset, cmp) {
+    if (cmp === 'yoy') return [addMonths(a, -12), addMonths(z, -12)];
+    const n = STEP[preset] || wholeMonths(a, z);
+    if (n) return [addMonths(a, -n), addMonths(z, -n)];
+    const len = daysBetween(a, z);
+    return [addDays(a, -len), addDays(a, -1)];
+  }
+  // Closed months at least half inside the range; if none (a range inside an open month), the latest closed month before its end.
+  function closedMonths(a, z, lastClosed) {
+    const ms = monthsIn(a, z).filter((m) => m <= lastClosed && daysBetween(a < m + '-01' ? m + '-01' : a, z < monthEnd(m + '-01') ? z : monthEnd(m + '-01')) * 2 >= dim(+m.slice(0, 4), +m.slice(5)));
+    return ms.length ? { ms, fallback: false } : { ms: [ym(z) <= lastClosed ? ym(z) : lastClosed], fallback: true };
+  }
+  const dateLabel = (a, z) => {
+    const sameY = a.slice(0, 4) === z.slice(0, 4), f = (s, y) => d3.utcFormat(y ? '%b %-d, %Y' : '%b %-d')(D(s));
+    return a === z ? f(a, true) : `${f(a, !sameY)} to ${f(z, true)}`;
+  };
+  const monthLabel = (ms) => {
+    if (!ms.length) return '';
+    const a = ms[0], z = ms[ms.length - 1];
+    if (a === z) return nm(a, '%B %Y');
+    return a.slice(0, 4) === z.slice(0, 4) ? `${nm(a)} to ${nm(z)} ${z.slice(0, 4)}` : `${nm(a, '%b %Y')} to ${nm(z, '%b %Y')}`;
+  };
+
+  // Window keys the cards read: curD/cmpD (dates, for bookings), curM/cmpM (closed months), plus labels and month lists.
+  const WIN_LABEL = {}, WIN_MONTHS = {};
+  let CUR = null;
+  function setRange(r) {
+    const { preset, start, end, cmp, today, lastClosed, openMonth } = r;
+    const [ca, cz] = compareRange(start, end, preset, cmp);
+    // The comparison uses the same number of closed months, stepped back as the dates are, so totals compare like for like.
+    const cur = closedMonths(start, end, lastClosed), step = cmp === 'yoy' ? 12 : STEP[preset] || wholeMonths(start, end) || cur.ms.length;
+    const was = { ms: cur.ms.map((m) => addMonths(m + '-01', -step).slice(0, 7)) };
+    const presetName = (PRESETS.find((p) => p[0] === preset) || [])[1] || 'Custom range';
+    Object.assign(WIN_LABEL, { curD: dateLabel(start, end), cmpD: dateLabel(ca, cz), curM: monthLabel(cur.ms), cmpM: monthLabel(was.ms) });
+    Object.assign(WIN_MONTHS, { curM: cur.ms, cmpM: was.ms, curD: monthsIn(start, end), cmpD: monthsIn(ca, cz) });
+    const exact = start === cur.ms[0] + '-01' && end === monthEnd(cur.ms[cur.ms.length - 1] + '-01');
+    CUR = {
+      preset, cmp, today, lastClosed, openMonth, start, end, cmpStart: ca, cmpEnd: cz,
+      label: `${presetName} · ${WIN_LABEL.curD}`, short: WIN_LABEL.curD,
+      book: 'curD', bookComp: 'cmpD', win: 'curM', winComp: 'cmpM',
+      months: monthsIn(start, end).filter((m) => m <= openMonth),
+      ecMonth: ym(end) <= openMonth ? ym(end) : openMonth, ecComp: ym(cz),
+      bookW: { curD: [start, end], cmpD: [ca, cz] }, monthW: { curM: cur.ms, cmpM: was.ms },
+      closeNote: exact ? '' : cur.fallback
+        ? `No month has closed inside this range yet, so MRR, revenue, customers, pipeline and MQLs show ${WIN_LABEL.curM}. Bookings, churns and end clients follow ${WIN_LABEL.curD}.`
+        : `Bookings, churns and end clients follow ${WIN_LABEL.curD}. MRR, revenue, customers, pipeline and MQLs use closed months: ${WIN_LABEL.curM}.`,
+    };
+    return CUR;
+  }
+  const spec = () => CUR;
+  const openLabel = (m, openMonth) => (m === openMonth ? `${nm(m, '%B')} to date` : nm(m, '%B %Y'));
 
   // ---------- chart scaffolding
   function size(el, opt, h) { return { w: (opt && opt.w) || Math.max(320, el.clientWidth), h: (opt && opt.h) || h }; }
@@ -317,5 +389,5 @@
     } catch (e) { plain(); }
   }
 
-  window.UB = { B, setTheme, MONO, fmt, spec, callout, spark, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
+  window.UB = { B, setTheme, MONO, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, monthEnd, qStart, addDays, callout, spark, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap };
 })();

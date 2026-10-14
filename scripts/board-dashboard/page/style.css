@@ -131,3 +131,13 @@
   --color-fg: #f8fafc; --color-fg-muted: #94a3b8; --color-border-line: #1d2545; --color-panel: #0b1024;
   background: var(--u-bg); color: var(--u-fg); padding: var(--cds-pad-lg); border-radius: 16px;
 }
+
+/* Date range control: preset menu plus native date inputs (the browser's calendar picker). */
+#ub .ub-range { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#ub .ub-range select, #ub .ub-range input { font: inherit; font-size: var(--cds-font-size-caption); color: var(--color-fg); background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: 999px; padding: 6px 12px; min-height: 32px; }
+#ub .ub-range select { padding-right: 28px; cursor: pointer; }
+#ub .ub-range input { border-radius: 8px; color-scheme: light; }
+#ub[data-theme="dark"] .ub-range input { color-scheme: dark; }
+#ub .ub-range select:focus-visible, #ub .ub-range input:focus-visible { outline: 2px solid var(--u-sky); outline-offset: 2px; }
+#ub .ub-range-to, #ub .ub-cmplabel { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+#ub .ub-cmplabel { margin-top: 2px; }

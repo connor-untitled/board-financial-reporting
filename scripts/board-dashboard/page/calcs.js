@@ -9,17 +9,25 @@
   },
 }));
 
+// The page reruns the period calcs on the range picked in the date control: each fn takes an optional
+// window map ({ __ub: true, w }) as its last argument and falls back to the fixed board windows below when called by the dashboard.
+if (typeof window !== 'undefined') {
+  window.UBC = {};
+  const reg = dash.calc;
+  dash.calc = (name, def) => { window.UBC[name] = def.fn; return reg.call(dash, name, def); };
+}
+
 // Period roll-ups. Each returns one row per period so the page can switch periods without new queries.
 // Month windows: 2026 quarters, single months, year to date, and the same periods in 2025.
 dash.calc('booking_totals', {
   inputs: ['bookings'],
   title: 'Bookings by period',
   description: 'Software bookings per signed-date period from the Wins tabs; services projects are left out, deals closed counts rows with contract value, and a new logo is a customer’s first New deal since January 2025.',
-  fn: (bookings) => {
+  fn: (bookings, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const sw = bookings.filter((b) => b.category === 'Software');
     const d = String(Math.max(1, ...sw.filter((b) => b.date >= '2026-10-01').map((b) => +b.date.slice(8, 10)))).padStart(2, '0');
-    const W = { Q1: ['2026-01-01', '2026-03-31'], Q2: ['2026-04-01', '2026-06-30'], Q3: ['2026-07-01', '2026-09-30'],
+    W = W && W.__ub ? W.w : { Q1: ['2026-01-01', '2026-03-31'], Q2: ['2026-04-01', '2026-06-30'], Q3: ['2026-07-01', '2026-09-30'],
       Oct: ['2026-10-01', '2026-10-' + d], SepTD: ['2026-09-01', '2026-09-' + d], YTD: ['2026-01-01', '2026-10-' + d],
       Q1_25: ['2025-01-01', '2025-03-31'], Q2_25: ['2025-04-01', '2025-06-30'], Q3_25: ['2025-07-01', '2025-09-30'],
       Oct_25: ['2025-10-01', '2025-10-' + d], YTD_25: ['2025-01-01', '2025-10-' + d],
@@ -77,11 +85,11 @@ dash.calc('mrr_windows', {
   inputs: ['kpi'],
   title: 'MRR movement and retention by period',
   description: 'Subscription and services MRR movements summed over each period from the KPI sheet as published. Adjustment is the August 2026 Stripe rebase. Retention is the average monthly dollar retention from the KPI sheet: 1 minus its gross (or net) monthly $ churn rate, averaged over the months in the period.',
-  fn: (kpi) => {
+  fn: (kpi, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
-    const W = { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
+    W = W && W.__ub ? W.w : { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
       Q1_25: Q(2025, 1), Q2_25: Q(2025, 4), Q3_25: Q(2025, 7), Sep_25: ['2025-09'], YTD_25: Y(2025) };
     const C = { Total: ['sub_', 'customers_'], Direct: ['direct_', 'direct_customers_'], Reseller: ['reseller_', 'resellers_'] };
     const out = [];
@@ -114,11 +122,11 @@ dash.calc('revenue_windows', {
   inputs: ['revenue'],
   title: 'Revenue by period',
   description: 'Revenue per line summed over each period. Recurring is subscription plus usage (consumption, DSP, mail) plus services retainer; services projects are left out.',
-  fn: (revenue) => {
+  fn: (revenue, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
-    const W = { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
+    W = W && W.__ub ? W.w : { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
       Q1_25: Q(2025, 1), Q2_25: Q(2025, 4), Q3_25: Q(2025, 7), Sep_25: ['2025-09'], YTD_25: Y(2025) };
     return Object.entries(W).map(([period, ms]) => {
       const r = revenue.filter((x) => ms.includes(x.month));
@@ -135,11 +143,11 @@ dash.calc('pipeline_windows', {
   inputs: ['kpi'],
   title: 'Pipeline movement by period',
   description: 'HubSpot pipeline created, won, lost and ending value per block, from the KPI sheet.',
-  fn: (kpi) => {
+  fn: (kpi, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
-    const W = { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
+    W = W && W.__ub ? W.w : { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
       Q1_25: Q(2025, 1), Q2_25: Q(2025, 4), Q3_25: Q(2025, 7), Sep_25: ['2025-09'], YTD_25: Y(2025) };
     const P = { Direct: 'direct_pipe_', Reseller: 'reseller_pipe_', 'Expansion (existing customers)': 'upsell_pipe_' };
     const out = [];
@@ -158,11 +166,11 @@ dash.calc('funnel_windows', {
   inputs: ['mqls', 'kpi', 'opps_split'],
   title: 'Funnel by period (live)',
   description: 'MQLs from HubSpot via Metabase, opportunities and new customers from the KPI sheet, per period. Below new opportunities, HubSpot deals created in the period split into marketing-sourced new business, other new business and expansion (rows with sub = true); HubSpot counts deals moved in after month end, so the split can total more than the KPI sheet.',
-  fn: (mqls, kpi, opps_split) => {
+  fn: (mqls, kpi, opps_split, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
-    const W = { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
+    W = W && W.__ub ? W.w : { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
       Q1_25: Q(2025, 1), Q2_25: Q(2025, 4), Q3_25: Q(2025, 7), Sep_25: ['2025-09'], YTD_25: Y(2025) };
     const out = [];
     Object.entries(W).forEach(([period, ms]) => {
@@ -182,11 +190,11 @@ dash.calc('funnel_windows_frozen', {
   inputs: ['mqls_frozen', 'kpi', 'opps_split_frozen'],
   title: 'Funnel by period (board snapshot)',
   description: 'As the live funnel, with MQLs as they stood on October 13, 2026 and the opportunity split as it stood on October 14, 2026.',
-  fn: (mqls_frozen, kpi, opps_split) => {
+  fn: (mqls_frozen, kpi, opps_split, W) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const Q = (y, a) => [0, 1, 2].map((i) => `${y}-${String(a + i).padStart(2, '0')}`);
     const Y = (y) => [1, 2, 3, 4, 5, 6, 7, 8, 9].map((m) => `${y}-0${m}`);
-    const W = { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
+    W = W && W.__ub ? W.w : { Q1: Q(2026, 1), Q2: Q(2026, 4), Q3: Q(2026, 7), Aug: ['2026-08'], Sep: ['2026-09'], YTD: Y(2026),
       Q1_25: Q(2025, 1), Q2_25: Q(2025, 4), Q3_25: Q(2025, 7), Sep_25: ['2025-09'], YTD_25: Y(2025) };
     const out = [];
     Object.entries(W).forEach(([period, ms]) => {
