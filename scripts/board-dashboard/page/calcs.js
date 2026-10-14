@@ -1,5 +1,5 @@
 // Metabase answers: column names plus row arrays, paired into rows.
-['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel'].forEach((id) => dash.loader(id, {
+['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel', 'churn_reasons'].forEach((id) => dash.loader(id, {
   description: 'Metabase answers with column names and row arrays; this pairs them into rows.',
   fn: ({ answer }) => {
     const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
@@ -275,6 +275,137 @@ dash.calc('plan_actuals', {
         if (channel === 'Total' && rv && k) row.consumption = +rv.consumption;
         out.push(row);
       });
+    });
+    return out;
+  },
+});
+
+// Who churned and why. Cancellations come from Stripe under the board KPI rules (stripe_churn.py), reasons from the
+// HubSpot company's churn reason (matched by domain, then name, nearest churn date), then the churn log's note.
+dash.calc('churns', {
+  inputs: ['stripe_churns', 'churn_reasons', 'churn_log'],
+  title: 'Churned customers with reasons',
+  description: 'One row per customer cancellation in Stripe (January 2025 on, the KPI sheet rules), with MRR lost, plan size, start and end dates, and a reason: the HubSpot company churn reason when one is recorded, otherwise the churn log note for the same customer within two months, grouped into categories. Customer type and churn type come from the churn log where the customer is in it.',
+  fn: (stripe_churns, reasons, churn_log) => {
+    // Reason categories, first match wins; the same list as build_data.py's CATEGORIES.
+    const CATS = [
+      ['Not recorded', /^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given/],
+      ['Went unresponsive', /disengage|never particularly responsive|unresponsive|never responded/],
+      ['Service miss', /customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed/],
+      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down/],
+      ['Non-payment', /non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying/],
+      ['Lost to competitor', /competitor|rb2b|switched provider/],
+      ['Compliance', /legal|compliance/],
+      ['Low adoption', /low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz/],
+      ['Champion left', /left the company|stakeholder|champion|implementer left|cheerleader/],
+      ['Budget cuts', /pe ownership|cost-cutting|cut costs|budget|discounted rate/],
+      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause/],
+      ['Product fit', /deliverability|spam|complaints/],
+      ['Pricing dispute', /pricing dispute|pricing change/],
+      ['Low ROI or value', /roi|justify|results|performance|value|cost/],
+    ];
+    const cat = (t) => { if (!t) return 'Not recorded'; const l = String(t).toLowerCase(); const c = CATS.find(([, re]) => re.test(l)); return c ? c[0] : 'Other'; };
+    const nkey = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+    const mnum = (m) => +String(m).slice(0, 4) * 12 + +String(m).slice(5, 7);
+    const unspecified = (t) => /^unspecified/i.test(String(t || '').trim());
+    const size = (v) => (v < 500 ? 'Under $500' : v < 1000 ? '$500 to $999' : v < 1500 ? '$1,000 to $1,499' : '$1,500 and up');
+    // The match nearest the churn month, so a company that churned twice gets the right note.
+    const nearest = (list, month, dateOf) => list.slice().sort((a, b) => Math.abs(mnum(dateOf(a)) - mnum(month)) - Math.abs(mnum(dateOf(b)) - mnum(month)))[0];
+    const hsByDomain = {}, hsByName = {}, logByName = {};
+    reasons.forEach((h) => { const d = String(h.domain || '').toLowerCase(); if (d) (hsByDomain[d] = hsByDomain[d] || []).push(h); (hsByName[nkey(h.name)] = hsByName[nkey(h.name)] || []).push(h); });
+    churn_log.forEach((l) => { (logByName[nkey(l.customer)] = logByName[nkey(l.customer)] || []).push(l); });
+    return stripe_churns.filter((c) => c.kind === 'cancellation').map((c) => {
+      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(c.customer)] || [];
+      const h = hsList.length ? nearest(hsList, c.churn_month, (x) => x.churn_date || c.churn_month) : null;
+      const logList = logByName[nkey(c.customer)] || [];
+      const l = logList.length ? nearest(logList, c.churn_month, (x) => x.churn_month) : null;
+      const logNear = l && Math.abs(mnum(l.churn_month) - mnum(c.churn_month)) <= 2 ? l : null;
+      const logReason = logNear && logNear.reason && logNear.reason !== 'Not recorded' ? logNear.reason : '';
+      let reason = '', source = 'None';
+      if (h && !unspecified(h.churn_reason)) { reason = h.churn_reason; source = 'HubSpot'; }
+      else if (logReason) { reason = logReason; source = logNear.reason_source === 'Slack' ? 'Slack' : 'Churn log'; }
+      else if (h) { reason = h.churn_reason; source = 'HubSpot'; }
+      const days = c.start_date && c.end_date ? Math.round((Date.parse(c.end_date) - Date.parse(c.start_date)) / 864e5) : null;
+      return { key: c.key, churn_month: c.churn_month, customer: c.customer, customer_id: c.customer_id, channel: c.channel,
+        mrr: c.mrr_lost, plan: size(c.mrr_lost), customer_type: (logNear && logNear.customer_type) || 'Not recorded',
+        churn_type: (logNear && logNear.churn_type) || 'Not recorded', start_date: c.start_date, end_date: c.end_date, days_active: days,
+        reason: reason || 'Not recorded', reason_source: source, reason_category: cat(reason), in_churn_log: !!logNear };
+    });
+  },
+});
+
+dash.calc('churns_frozen', {
+  inputs: ['stripe_churns', 'churn_reasons_frozen', 'churn_log'],
+  title: 'Churned customers with reasons (board snapshot)',
+  description: 'As the live version, with HubSpot churn reasons as they stood on October 14, 2026.',
+  fn: (stripe_churns, reasons, churn_log) => {
+    // Reason categories, first match wins; the same list as build_data.py's CATEGORIES.
+    const CATS = [
+      ['Not recorded', /^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given/],
+      ['Went unresponsive', /disengage|never particularly responsive|unresponsive|never responded/],
+      ['Service miss', /customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed/],
+      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down/],
+      ['Non-payment', /non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying/],
+      ['Lost to competitor', /competitor|rb2b|switched provider/],
+      ['Compliance', /legal|compliance/],
+      ['Low adoption', /low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz/],
+      ['Champion left', /left the company|stakeholder|champion|implementer left|cheerleader/],
+      ['Budget cuts', /pe ownership|cost-cutting|cut costs|budget|discounted rate/],
+      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause/],
+      ['Product fit', /deliverability|spam|complaints/],
+      ['Pricing dispute', /pricing dispute|pricing change/],
+      ['Low ROI or value', /roi|justify|results|performance|value|cost/],
+    ];
+    const cat = (t) => { if (!t) return 'Not recorded'; const l = String(t).toLowerCase(); const c = CATS.find(([, re]) => re.test(l)); return c ? c[0] : 'Other'; };
+    const nkey = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+    const mnum = (m) => +String(m).slice(0, 4) * 12 + +String(m).slice(5, 7);
+    const unspecified = (t) => /^unspecified/i.test(String(t || '').trim());
+    const size = (v) => (v < 500 ? 'Under $500' : v < 1000 ? '$500 to $999' : v < 1500 ? '$1,000 to $1,499' : '$1,500 and up');
+    // The match nearest the churn month, so a company that churned twice gets the right note.
+    const nearest = (list, month, dateOf) => list.slice().sort((a, b) => Math.abs(mnum(dateOf(a)) - mnum(month)) - Math.abs(mnum(dateOf(b)) - mnum(month)))[0];
+    const hsByDomain = {}, hsByName = {}, logByName = {};
+    reasons.forEach((h) => { const d = String(h.domain || '').toLowerCase(); if (d) (hsByDomain[d] = hsByDomain[d] || []).push(h); (hsByName[nkey(h.name)] = hsByName[nkey(h.name)] || []).push(h); });
+    churn_log.forEach((l) => { (logByName[nkey(l.customer)] = logByName[nkey(l.customer)] || []).push(l); });
+    return stripe_churns.filter((c) => c.kind === 'cancellation').map((c) => {
+      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(c.customer)] || [];
+      const h = hsList.length ? nearest(hsList, c.churn_month, (x) => x.churn_date || c.churn_month) : null;
+      const logList = logByName[nkey(c.customer)] || [];
+      const l = logList.length ? nearest(logList, c.churn_month, (x) => x.churn_month) : null;
+      const logNear = l && Math.abs(mnum(l.churn_month) - mnum(c.churn_month)) <= 2 ? l : null;
+      const logReason = logNear && logNear.reason && logNear.reason !== 'Not recorded' ? logNear.reason : '';
+      let reason = '', source = 'None';
+      if (h && !unspecified(h.churn_reason)) { reason = h.churn_reason; source = 'HubSpot'; }
+      else if (logReason) { reason = logReason; source = logNear.reason_source === 'Slack' ? 'Slack' : 'Churn log'; }
+      else if (h) { reason = h.churn_reason; source = 'HubSpot'; }
+      const days = c.start_date && c.end_date ? Math.round((Date.parse(c.end_date) - Date.parse(c.start_date)) / 864e5) : null;
+      return { key: c.key, churn_month: c.churn_month, customer: c.customer, customer_id: c.customer_id, channel: c.channel,
+        mrr: c.mrr_lost, plan: size(c.mrr_lost), customer_type: (logNear && logNear.customer_type) || 'Not recorded',
+        churn_type: (logNear && logNear.churn_type) || 'Not recorded', start_date: c.start_date, end_date: c.end_date, days_active: days,
+        reason: reason || 'Not recorded', reason_source: source, reason_category: cat(reason), in_churn_log: !!logNear };
+    });
+  },
+});
+
+// Stripe under the KPI rules against the KPI sheet as published, month by month. The published sheet stays the board's
+// source for totals until the year-end rebase; this shows what that restatement would change.
+dash.calc('stripe_vs_kpi', {
+  inputs: ['stripe_monthly', 'kpi'],
+  title: 'Stripe vs the KPI sheet by month',
+  description: 'Per month from January 2025: lost MRR (cancellation plus contraction), ending subscription MRR and customers churned, from the KPI sheet as published and from Stripe under the same rules (stripe_churn.py), with the difference.',
+  fn: (stripe_monthly, kpi) => {
+    const out = [];
+    const months = [...new Set(stripe_monthly.map((r) => r.month))].sort();
+    months.forEach((m) => {
+      const s = stripe_monthly.filter((r) => r.month === m), k = kpi.find((r) => r.month === m && r.sub_ending != null);
+      if (!k) return;
+      const sum = (f) => s.reduce((t, r) => t + (+f(r) || 0), 0);
+      const sLost = sum((r) => r.cancellation + r.contraction), kLost = (+k.sub_cancellation || 0) + (+k.sub_contraction || 0);
+      const sEnd = sum((r) => r.ending), kEnd = +k.sub_ending, sN = sum((r) => r.customers_churned), kN = +k.customers_churned || 0;
+      const churnSame = Math.abs(sLost - kLost) < 1 && sN === kN, endSame = Math.abs(sEnd - kEnd) < 1;
+      out.push({ month: m, kpi_lost: kLost, stripe_lost: Math.round(sLost * 100) / 100, lost_diff: Math.round((sLost - kLost) * 100) / 100,
+        kpi_ending: kEnd, stripe_ending: Math.round(sEnd * 100) / 100, ending_diff: Math.round((sEnd - kEnd) * 100) / 100,
+        kpi_churned: kN, stripe_churned: sN,
+        status: churnSame ? (endSame ? 'Matches' : 'Churn matches; ending MRR differs') : (endSame ? 'Churn differs' : 'Churn and ending MRR differ') });
     });
     return out;
   },

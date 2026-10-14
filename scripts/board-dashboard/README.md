@@ -6,6 +6,7 @@ Nothing here writes to a source sheet.
 
 | Path | Does |
 | --- | --- |
+| `stripe_churn.py` | Pulls Stripe and writes customer cancellations and monthly MRR movements from January 2025 under the board KPI rules |
 | `build_data.py` | Reads the KPI sheet and TEAM REVENUE WINS with the service account, plus the churn log export and churn reasons, and writes one JSON per dashboard source to `.board-dashboard/out/` |
 | `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split, opportunities by channel), as stored in the dashboard |
 | `page/` | The dashboard page: `font.js` (embedded Inter, OFL), `core.js` (charts, callouts, sparklines, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
@@ -104,9 +105,19 @@ drip of restatements:
 - **Bookings:** FY25 and FY26 WINS. Software only; services projects are left
   out. A new logo is a customer's first New software deal since January 2025.
   FY25 rows dated 2024 are read as 2025 and printed.
-- **Churn:** the Master Churn Data Log, with reasons from HubSpot company
-  `churn_reason`, then Slack (`slack_churn_reasons.json`), then the log's own
-  note, grouped by keyword into categories (`CATEGORIES`).
+- **Churn (who and how much):** Stripe cancellations from January 2025 under
+  the board KPI rules, built by `stripe_churn.py`, which runs
+  `scripts/board-kpis/mrr.py` over a longer history. These drive the churn
+  summary, reasons and who-churned cards for any date range.
+- **Churn (why):** the HubSpot company churn reason, live through
+  `sql/churn_reasons.sql`, matched to each cancellation by email domain and
+  then name (nearest churn date wins); otherwise the Master Churn Data Log's
+  note within two months (its 2026 tab and the 2025 rows of its Input tab),
+  which also supplies customer type and churn type. Grouped by keyword into
+  categories (`CATEGORIES`, mirrored in the `churns` calc).
+- **Churn totals:** lost MRR, churn rates and the MRR bridge stay on the KPI
+  sheet as published until the year-end rebase. The Internal tab's "Stripe vs
+  the KPI sheet, by month" shows what that restatement would change.
 - **Reseller end clients:** question 1156's logic without its 3-month lookback
   (`sql/reseller_end_clients.sql`); months before September 2025 come from the
   Wins tab as published.
@@ -117,7 +128,9 @@ drip of restatements:
    (or share it with the service account and read it like the other sheets).
 2. Save HubSpot companies with a 2026 `churn_date` (name, domain, churn_reason,
    churn_date) to `.board-dashboard/hubspot_churn_reasons.json`.
-3. `python3 scripts/board-dashboard/build_data.py`
+3. `python3 scripts/board-dashboard/build_data.py`, then
+   `python3 scripts/board-dashboard/stripe_churn.py` (pulls Stripe through the
+   proxy; a few minutes)
 4. Upload each changed file in `.board-dashboard/out/` to the dashboard and
    point its dataset at the new url; set `updated`.
 5. For a board meeting, re-run the `sql/` queries and save them as the

@@ -2,7 +2,9 @@
 (function () {
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
-  const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel'];
+  const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons'];
+  // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
+  const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
   const $ = (s) => document.querySelector('#ub ' + s);
   const $$ = (s) => [...document.querySelectorAll('#ub ' + s)];
   const id = (x) => (state.data === 'frozen' && LIVE.includes(x) ? x + '_frozen' : x);
@@ -352,7 +354,7 @@
   };
 
   CARDS['c-bridge'] = {
-    kind: 'close', src: ['kpi', 'churn_log'], data: () => ['mrr_windows'],
+    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       $$('.ub-seg-channel button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.channel));
@@ -379,10 +381,10 @@
       return { columns: ['Step', state.channel + ' MRR'], rows: bars.map((b) => [b.label, b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
     },
     note() {
-      const mw = rows('mrr_windows'), log = rows('churn_log'); if (!mw || !log) return '';
+      const mw = rows('mrr_windows'), log = rows(CH()); if (!mw || !log) return '';
       const s = S(), m = winRows(mw, s.win, (r) => r.channel === state.channel);
       let t = `${state.channel === 'Total' ? 'Subscription and services' : state.channel} MRR ${fmt.signedUsd(m.net_new)} net: new ${fmt.usd(m.new)}, expansion ${fmt.usd(m.expansion)}, cancellations ${fmt.usd(m.cancellation)}.`;
-      const months = WIN_MONTHS[s.win].filter((x) => x >= '2026-01');
+      const months = WIN_MONTHS[s.win];
       const top = topChurns(log.filter((x) => state.channel === 'Total' || x.channel === state.channel), months, 3);
       if (top) t += ` Largest cancellations: ${top}.`;
       if (Math.abs(m.adjustment) > 0.5) t += ` The rebase bar is the one-time August 2026 true-up of the sheet to Stripe, as published.`;
@@ -678,7 +680,7 @@
 
   // ---------- Churn and retention
   CARDS['c-retention'] = {
-    kind: 'close', src: ['kpi', 'churn_log'], data: () => ['mrr_windows', 'churn_log', 'kpi'],
+    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows', CH(), 'kpi'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === 'Total'), mc = winRows(d.mrr_windows, s.winComp, (r) => r.channel === 'Total');
@@ -696,11 +698,11 @@
       return { columns: ['Metric', WIN_LABEL[s.win], 'Change', 'Compared with'], rows: items.map((i) => [i.label, i.value, i.delta, WIN_LABEL[s.winComp]]) };
     },
     note() {
-      const mw = rows('mrr_windows'), log = rows('churn_log'); if (!mw || !log) return '';
+      const mw = rows('mrr_windows'), log = rows(CH()); if (!mw || !log) return '';
       const s = S(), ms = WIN_MONTHS[s.win];
       const r = log.filter((x) => ms.includes(x.churn_month)), byCat = d3.rollups(r.filter((x) => x.reason_category !== 'Not recorded'), (v) => d3.sum(v, (x) => x.mrr), (x) => x.reason_category).sort((a, b) => b[1] - a[1]);
       const nr = r.filter((x) => x.reason_category === 'Not recorded');
-      let t = `Retention is the average monthly share of starting MRR kept, from the KPI sheet. Largest churns: ${topChurns(log, ms, 3) || 'none in the log'}.`;
+      let t = `Retention is the average monthly share of starting MRR kept, from the KPI sheet. Largest Stripe cancellations: ${topChurns(log, ms, 3) || 'none'}.`;
       if (byCat.length) t += ` Leading recorded reason: ${byCat[0][0].toLowerCase()} (${fmt.usd(byCat[0][1])}).`;
       if (nr.length) t += ` ${nr.length} churns (${fmt.usd(d3.sum(nr, (x) => x.mrr))}) have no reason recorded yet.`;
       return t;
@@ -715,7 +717,7 @@
       const data = d.kpi.filter((k) => TREND(k.month)).map((k) => ({ month: k.month, direct: k.direct_cancellation + (k.direct_contraction || 0), reseller: k.reseller_cancellation + (k.reseller_contraction || 0), n: k.customers_churned }));
       legend(el, SR.map((x) => [x.color, x.label]));
       const inR = data.filter((q) => WIN_MONTHS[s.win].includes(q.month)), d26 = inR.length ? inR : data, worst = d26.reduce((a, q) => (q.direct + q.reseller > a.direct + a.reseller ? q : a), d26[0]);
-      const lg = (rows('churn_log') || []).filter((x) => x.churn_month === worst.month).sort((a, z) => z.mrr - a.mrr).slice(0, 2).map((x) => x.customer.replace(/\s*\(.*\)/, '').split(' ')[0]);
+      const lg = (rows(CH()) || []).filter((x) => x.churn_month === worst.month).sort((a, z) => z.mrr - a.mrr).slice(0, 2).map((x) => x.customer.replace(/\s*\(.*\)/, '').split(' ')[0]);
       const notes = [{ month: worst.month, text: lg.length ? `${lg.join(' and ')} left` : 'Largest month' }];
       stackedBars(el, { ...opt, rows: data, series: SR, highlight: WIN_MONTHS[s.win], yfmt: fmt.usd, height: 310, notes });
       return { columns: ['Month', 'Direct lost MRR', 'Reseller lost MRR', 'Total', 'Customers churned'], rows: data.map((r) => [fmt.monthLong(r.month), fmt.usdFull(r.direct), fmt.usdFull(r.reseller), fmt.usdFull(r.direct + r.reseller), r.n]) };
@@ -737,33 +739,34 @@
   };
 
   CARDS['c-reasons'] = {
-    kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
+    kind: 'close', src: ['stripe_churns', 'churn_reasons'], data: () => [CH()],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), ms = selMonths();
-      const r = d.churn_log.filter((x) => ms.includes(x.churn_month));
+      const r = d[CH()].filter((x) => ms.includes(x.churn_month));
       const data = d3.rollups(r, (v) => ({ mrr: d3.sum(v, (x) => x.mrr), n: v.length }), (x) => x.reason_category).map(([cat, v]) => ({ cat, ...v })).sort((a, b) => (a.cat === 'Not recorded') - (b.cat === 'Not recorded') || b.mrr - a.mrr);
       hbars(el, opt, data, { label: (q) => q.cat, value: (q) => q.mrr, color: (q) => (q.cat === 'Not recorded' ? B.prior : B.bad), fmtv: (v) => fmt.usd(v), sub: (q) => `${q.n} customer${q.n === 1 ? '' : 's'}` });
       return { columns: ['Reason', 'Lost MRR', 'Customers'], rows: data.map((q) => [q.cat, fmt.usdFull(q.mrr), q.n]) };
     },
-    note() { return 'Reasons come from HubSpot company churn notes where they exist, otherwise the churn log, grouped into categories. Grey is churn with no reason recorded yet.'; },
+    note() { return 'Each Stripe cancellation takes the HubSpot company churn reason where one is recorded, otherwise the churn log note, grouped into categories. Grey is churn with no reason recorded yet.'; },
   };
 
   CARDS['c-churnlog'] = {
-    kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
+    kind: 'close', src: ['stripe_churns', 'churn_reasons'], data: () => [CH()],
     draw(el) {
       const d = need(el, this.data()); if (!d) return null;
       const s = S(), ms = selMonths();
-      const r = d.churn_log.filter((x) => ms.includes(x.churn_month)).sort((a, b) => b.mrr - a.mrr);
+      const r = d[CH()].filter((x) => ms.includes(x.churn_month)).sort((a, b) => b.mrr - a.mrr);
       const tb = card('c-churnlog').querySelector('tbody');
       const cells = (x) => [x.customer, fmt.month(x.churn_month), x.channel, fmt.usdFull(x.mrr), x.reason_category, x.reason];
-      tb.replaceChildren(...r.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.log_row; cells(x).forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }); return tr; }));
+      tb.replaceChildren(...r.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.key; cells(x).forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }); return tr; }));
       return { columns: ['Customer', 'Month', 'Channel', 'MRR', 'Reason category', 'Reason'], rows: r.map(cells) };
     },
     note() {
-      const log = rows('churn_log'); if (!log) return '';
+      const log = rows(CH()); if (!log) return '';
       const s = S(), ms = selMonths(), r = log.filter((x) => ms.includes(x.churn_month));
-      return `${r.length} churns, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR in the churn log for ${WIN_LABEL[s.book]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length}.`;
+      const nr = r.filter((x) => x.reason_category === 'Not recorded').length;
+      return `${r.length} Stripe cancellations, ${fmt.usd(d3.sum(r, (x) => x.mrr))} MRR, in ${WIN_LABEL[s.book]}. Voluntary ${r.filter((x) => x.churn_type === 'Voluntary').length}, involuntary ${r.filter((x) => x.churn_type === 'Involuntary').length} (from the churn log)${nr ? `; ${nr} with no reason recorded` : ''}.`;
     },
   };
 
@@ -848,6 +851,24 @@
     note: () => '',
   };
 
+  CARDS['c-stripekpi'] = {
+    kind: 'static', src: ['stripe_churns', 'kpi'], data: () => ['stripe_vs_kpi'],
+    draw(el) {
+      const d = need(el, this.data()); if (!d) return null;
+      const tb = card('c-stripekpi').querySelector('tbody');
+      const cells = (r) => [fmt.monthLong(r.month), fmt.usdFull(r.kpi_lost), fmt.usdFull(r.stripe_lost), fmt.signedUsd(r.lost_diff), String(r.kpi_churned), String(r.stripe_churned), fmt.usdFull(r.kpi_ending), fmt.usdFull(r.stripe_ending), fmt.signedUsd(r.ending_diff), r.status];
+      const rws = d.stripe_vs_kpi.slice().reverse();
+      tb.replaceChildren(...rws.map((r) => { const tr = document.createElement('tr'); tr.dataset.key = r.month;
+        cells(r).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 9) td.className = 'ub-status ub-status-' + (r.status === 'Matches' ? 'matches' : 'differs'); tr.appendChild(td); }); return tr; }));
+      return { columns: ['Month', 'KPI lost MRR', 'Stripe lost MRR', 'Difference', 'KPI churned', 'Stripe churned', 'KPI ending MRR', 'Stripe ending MRR', 'Difference', 'Status'], rows: rws.map(cells) };
+    },
+    note() {
+      const v = rows('stripe_vs_kpi'); if (!v || !v.length) return '';
+      const churnSame = v.filter((r) => r.status === 'Matches' || r.status.startsWith('Churn matches')).length, first = v.find((r) => r.status === 'Matches');
+      return `Lost MRR and churned customers agree in ${churnSame} of ${v.length} months${first ? `; everything agrees from ${fmt.monthLong(first.month)} on, the month of the Stripe true-up` : ''}. The published KPI sheet stays the board's source until the year-end rebase; this is what that restatement would change.`;
+    },
+  };
+
   // ---------- Deck-format cards (the views the board saw in May)
   // Small bar panel inside a larger SVG, used for the churn summary grid.
   function panel(svg, x0, y0, w, h, title, data, f, color, horiz) {
@@ -924,11 +945,11 @@
   };
 
   CARDS['c-churnsum'] = {
-    kind: 'close', src: ['churn_log'], data: () => ['churn_log'],
+    kind: 'close', src: ['stripe_churns', 'churn_reasons'], data: () => [CH()],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const s = S(), ms = selMonths().filter((m) => m >= '2026-01');
-      const r = d.churn_log.filter((x) => ms.includes(x.churn_month));
+      const s = S(), ms = selMonths();
+      const r = d[CH()].filter((x) => ms.includes(x.churn_month));
       const roll = (key, val) => d3.rollups(r, val, key).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
       const byMonth = ms.map((m) => ({ label: fmt.month(m), mrr: d3.sum(r.filter((x) => x.churn_month === m), (x) => x.mrr), n: r.filter((x) => x.churn_month === m).length }));
       const plans$ = roll((x) => planName(x.plan), (v) => d3.sum(v, (x) => x.mrr)).slice(0, 6), plansN = roll((x) => planName(x.plan), (v) => v.length).slice(0, 6);
@@ -943,10 +964,10 @@
       svg.append('text').attr('x', w / 2 + 50).attr('y', 40).attr('class', 'ub-sub').attr('fill', B.muted).text('churned customers');
       const panels = [
         ['Churned MRR by month', byMonth.map((q) => ({ label: q.label, value: q.mrr })), fmt.usdS, false],
-        ['Churned MRR by plan', plans$, fmt.usdS, true],
+        ['Churned MRR by plan size', plans$, fmt.usdS, true],
         ['By customer type (share of count)', share((x) => x.customer_type || 'Other'), d3.format('.0%'), true],
         ['Churn count by month', byMonth.map((q) => ({ label: q.label, value: q.n })), fmt.n, false],
-        ['Churn count by plan', plansN, fmt.n, true],
+        ['Churn count by plan size', plansN, fmt.n, true],
         ['By channel (share of count)', share((x) => x.channel || 'Other'), d3.format('.0%'), true],
       ];
       panels.forEach(([t, data, f, hz], i) => {
@@ -956,10 +977,10 @@
       return { columns: ['Measure', 'Group', 'Value'], rows: panels.flatMap(([t, data, f]) => data.map((q) => [t, q.label, f(q.value)])) };
     },
     note() {
-      const log = rows('churn_log'); if (!log) return '';
-      const s = S(), ms = selMonths().filter((m) => m >= '2026-01');
+      const log = rows(CH()); if (!log) return '';
+      const s = S(), ms = selMonths();
       const r = log.filter((x) => ms.includes(x.churn_month)), dir = r.filter((x) => x.channel === 'Direct');
-      return `From the churn log. Direct accounts are ${d3.format('.0%')(r.length ? dir.length / r.length : 0)} of churned customers and ${d3.format('.0%')(d3.sum(r, (x) => x.mrr) ? d3.sum(dir, (x) => x.mrr) / d3.sum(r, (x) => x.mrr) : 0)} of churned MRR.`;
+      return `Stripe cancellations, with customer type from the churn log where the customer is in it. Direct accounts are ${d3.format('.0%')(r.length ? dir.length / r.length : 0)} of churned customers and ${d3.format('.0%')(d3.sum(r, (x) => x.mrr) ? d3.sum(dir, (x) => x.mrr) / d3.sum(r, (x) => x.mrr) : 0)} of churned MRR.`;
     },
   };
 
@@ -1125,12 +1146,12 @@
       return `Paying resellers grew from ${c.customers_ending} to ${r.customers_ending}`; },
     'c-retention': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === 'Total');
       return `${fmt.rate(m.gross_retention)} of MRR kept each month on average; ${fmt.rate(m.net_retention)} with expansion`; },
-    'c-churnsum': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths().filter((m) => m >= '2026-01');
+    'c-churnsum': () => { const log = rows(CH()); if (!log) return ''; const ms = selMonths();
       const r = log.filter((x) => ms.includes(x.churn_month)); const tot = d3.sum(r, (x) => x.mrr), dir = d3.sum(r.filter((x) => x.channel === 'Direct'), (x) => x.mrr);
       return r.length ? `${r.length} customers and ${fmt.usd(tot)} MRR churned; ${d3.format('.0%')(tot ? dir / tot : 0)} of it Direct, ${fmt.usd(tot / r.length)} a customer on average` : 'No churns logged in the period'; },
     'c-churnmrr': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       const l = m.cancellation + m.contraction, lc = c.cancellation + c.contraction; return `Lost MRR ${fmt.usd(l)}, ${l <= lc ? 'down' : 'up'} ${fmt.usd(Math.abs(l - lc))} vs ${WIN_LABEL[s.winComp]}`; },
-    'c-reasons': () => { const log = rows('churn_log'); if (!log) return ''; const ms = selMonths();
+    'c-reasons': () => { const log = rows(CH()); if (!log) return ''; const ms = selMonths();
       const by = d3.rollups(log.filter((x) => ms.includes(x.churn_month) && x.reason_category !== 'Not recorded'), (v) => d3.sum(v, (x) => x.mrr), (x) => x.reason_category).sort((a, z) => z[1] - a[1]);
       return by.length ? `${by[0][0]} is the leading reason, at ${fmt.usd(by[0][1])} of lost MRR` : ''; },
     'c-mqls': () => { const mq = rows(id('mqls')); if (!mq) return ''; const ms = WIN_MONTHS[S().win], t = d3.sum(mq.filter((r) => ms.includes(r.month)), (r) => +r.mqls);
@@ -1377,7 +1398,7 @@
   }
 
   // ---------- as-of footers
-  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Cash Forecast Q4'26-Q1'27 targets (read only)", opps_channel: 'HubSpot deals via Metabase' };
+  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Cash Forecast Q4'26-Q1'27 targets (read only)", opps_channel: 'HubSpot deals via Metabase', churn_reasons: 'HubSpot company churn reasons via Metabase' };
   function footer(c) {
     const info = rows('snapshot_info') || [];
     const parts = (CARDS[c].src || []).filter((x) => x !== 'goals').map((x) => {
@@ -1427,7 +1448,7 @@
   if ($$('.ub-page').some((p) => p.id === named)) state.tab = named;
 
   // Point each card's source marks at the live or snapshot copy, so only the sources in use load.
-  const dsMap = (x) => (x === 'funnel_windows' && state.data === 'frozen' ? 'funnel_windows_frozen' : id(x));
+  const dsMap = (x) => (x === 'funnel_windows' && state.data === 'frozen' ? 'funnel_windows_frozen' : x === 'churns' ? CH() : id(x));
   function markSources() {
     $$('[data-ds]').forEach((el) => el.setAttribute('data-source', el.dataset.ds.split(' ').map(dsMap).join(' ')));
     $$('[data-ds-table]').forEach((el) => el.setAttribute('data-source', dsMap(el.dataset.dsTable)));
