@@ -295,17 +295,17 @@ dash.calc('churns', {
       ['Not recorded', /^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given/],
       ['Went unresponsive', /disengage|never particularly responsive|unresponsive|never responded/],
       ['Service miss', /customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed/],
-      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down/],
+      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down|out of business/],
       ['Non-payment', /non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying/],
       ['Lost to competitor', /competitor|rb2b|switched provider/],
       ['Compliance', /legal|compliance/],
       ['Low adoption', /low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz/],
       ['Champion left', /left the company|stakeholder|champion|implementer left|cheerleader/],
       ['Budget cuts', /pe ownership|cost-cutting|cut costs|budget|discounted rate/],
-      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause/],
+      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause|change of priorit|priorities changed/],
       ['Product fit', /deliverability|spam|complaints/],
       ['Pricing dispute', /pricing dispute|pricing change/],
-      ['Low ROI or value', /roi|justify|results|performance|value|cost/],
+      ['Low ROI or value', /roi|justify|results|performance|value|cost|lack of traction|no traction/],
     ];
     const cat = (t) => { if (!t) return 'Not recorded'; const l = String(t).toLowerCase(); const c = CATS.find(([, re]) => re.test(l)); return c ? c[0] : 'Other'; };
     const nkey = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
@@ -347,17 +347,17 @@ dash.calc('churns_frozen', {
       ['Not recorded', /^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given/],
       ['Went unresponsive', /disengage|never particularly responsive|unresponsive|never responded/],
       ['Service miss', /customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed/],
-      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down/],
+      ['Business closed', /shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down|out of business/],
       ['Non-payment', /non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying/],
       ['Lost to competitor', /competitor|rb2b|switched provider/],
       ['Compliance', /legal|compliance/],
       ['Low adoption', /low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz/],
       ['Champion left', /left the company|stakeholder|champion|implementer left|cheerleader/],
       ['Budget cuts', /pe ownership|cost-cutting|cut costs|budget|discounted rate/],
-      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause/],
+      ['Business change', /agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause|change of priorit|priorities changed/],
       ['Product fit', /deliverability|spam|complaints/],
       ['Pricing dispute', /pricing dispute|pricing change/],
-      ['Low ROI or value', /roi|justify|results|performance|value|cost/],
+      ['Low ROI or value', /roi|justify|results|performance|value|cost|lack of traction|no traction/],
     ];
     const cat = (t) => { if (!t) return 'Not recorded'; const l = String(t).toLowerCase(); const c = CATS.find(([, re]) => re.test(l)); return c ? c[0] : 'Other'; };
     const nkey = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
