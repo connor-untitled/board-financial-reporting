@@ -283,6 +283,14 @@ dash.calc('plan_actuals', {
   },
 });
 
+// Stripe billing accounts that are not the customer's own name, matched to the customer named in the churn log
+// and HubSpot.
+const BILLED_AS = { cus_Q6F7vnskosPMi0: 'Compound Foundry' };  // billed as Painted Paper
+// Cancellations that are not a customer leaving. Aprio was the billing account for Dreamcraft, half of a split
+// Bedzzz Express subscription; it stopped paying in July 2025, Bedzzz's own subscription rose to cover the full
+// $2,000 in March 2026 when Aprio's was cancelled, and the account churned as Bedzzz Express in July 2026.
+const NOT_A_CHURN = { cus_QwfgXkXeAfaHW7: 'Aprio: billing half of Bedzzz Express, offset by the Bedzzz increase in March 2026' };
+
 // Who churned and why. Cancellations come from Stripe under the board KPI rules (stripe_churn.py), reasons from the
 // HubSpot company's churn reason (matched by domain, then name, nearest churn date), then the churn log's note.
 dash.calc('churns', {
@@ -317,10 +325,11 @@ dash.calc('churns', {
     const hsByDomain = {}, hsByName = {}, logByName = {};
     reasons.forEach((h) => { const d = String(h.domain || '').toLowerCase(); if (d) (hsByDomain[d] = hsByDomain[d] || []).push(h); (hsByName[nkey(h.name)] = hsByName[nkey(h.name)] || []).push(h); });
     churn_log.forEach((l) => { (logByName[nkey(l.customer)] = logByName[nkey(l.customer)] || []).push(l); });
-    return stripe_churns.filter((c) => c.kind === 'cancellation').map((c) => {
-      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(c.customer)] || [];
+    return stripe_churns.filter((c) => c.kind === 'cancellation' && !NOT_A_CHURN[c.customer_id]).map((c) => {
+      const name = BILLED_AS[c.customer_id] || c.customer;
+      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(name)] || [];
       const h = hsList.length ? nearest(hsList, c.churn_month, (x) => x.churn_date || c.churn_month) : null;
-      const logList = logByName[nkey(c.customer)] || [];
+      const logList = logByName[nkey(name)] || [];
       const l = logList.length ? nearest(logList, c.churn_month, (x) => x.churn_month) : null;
       const logNear = l && Math.abs(mnum(l.churn_month) - mnum(c.churn_month)) <= 2 ? l : null;
       const logReason = logNear && logNear.reason && logNear.reason !== 'Not recorded' ? logNear.reason : '';
@@ -329,7 +338,7 @@ dash.calc('churns', {
       else if (logReason) { reason = logReason; source = logNear.reason_source === 'Slack' ? 'Slack' : 'Churn log'; }
       else if (h) { reason = h.churn_reason; source = 'HubSpot'; }
       const days = c.start_date && c.end_date ? Math.round((Date.parse(c.end_date) - Date.parse(c.start_date)) / 864e5) : null;
-      return { key: c.key, churn_month: c.churn_month, customer: c.customer, customer_id: c.customer_id, channel: c.channel,
+      return { key: c.key, churn_month: c.churn_month, customer: BILLED_AS[c.customer_id] ? `${name} (billed as ${c.customer})` : c.customer, customer_id: c.customer_id, channel: c.channel,
         mrr: c.mrr_lost, plan: size(c.mrr_lost), customer_type: (logNear && logNear.customer_type) || 'Not recorded',
         churn_type: (logNear && logNear.churn_type) || 'Not recorded', start_date: c.start_date, end_date: c.end_date, days_active: days,
         reason: reason || 'Not recorded', reason_source: source, reason_category: cat(reason), in_churn_log: !!logNear };
@@ -369,10 +378,11 @@ dash.calc('churns_frozen', {
     const hsByDomain = {}, hsByName = {}, logByName = {};
     reasons.forEach((h) => { const d = String(h.domain || '').toLowerCase(); if (d) (hsByDomain[d] = hsByDomain[d] || []).push(h); (hsByName[nkey(h.name)] = hsByName[nkey(h.name)] || []).push(h); });
     churn_log.forEach((l) => { (logByName[nkey(l.customer)] = logByName[nkey(l.customer)] || []).push(l); });
-    return stripe_churns.filter((c) => c.kind === 'cancellation').map((c) => {
-      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(c.customer)] || [];
+    return stripe_churns.filter((c) => c.kind === 'cancellation' && !NOT_A_CHURN[c.customer_id]).map((c) => {
+      const name = BILLED_AS[c.customer_id] || c.customer;
+      const hsList = (c.domain && hsByDomain[c.domain]) || hsByName[nkey(name)] || [];
       const h = hsList.length ? nearest(hsList, c.churn_month, (x) => x.churn_date || c.churn_month) : null;
-      const logList = logByName[nkey(c.customer)] || [];
+      const logList = logByName[nkey(name)] || [];
       const l = logList.length ? nearest(logList, c.churn_month, (x) => x.churn_month) : null;
       const logNear = l && Math.abs(mnum(l.churn_month) - mnum(c.churn_month)) <= 2 ? l : null;
       const logReason = logNear && logNear.reason && logNear.reason !== 'Not recorded' ? logNear.reason : '';
@@ -381,7 +391,7 @@ dash.calc('churns_frozen', {
       else if (logReason) { reason = logReason; source = logNear.reason_source === 'Slack' ? 'Slack' : 'Churn log'; }
       else if (h) { reason = h.churn_reason; source = 'HubSpot'; }
       const days = c.start_date && c.end_date ? Math.round((Date.parse(c.end_date) - Date.parse(c.start_date)) / 864e5) : null;
-      return { key: c.key, churn_month: c.churn_month, customer: c.customer, customer_id: c.customer_id, channel: c.channel,
+      return { key: c.key, churn_month: c.churn_month, customer: BILLED_AS[c.customer_id] ? `${name} (billed as ${c.customer})` : c.customer, customer_id: c.customer_id, channel: c.channel,
         mrr: c.mrr_lost, plan: size(c.mrr_lost), customer_type: (logNear && logNear.customer_type) || 'Not recorded',
         churn_type: (logNear && logNear.churn_type) || 'Not recorded', start_date: c.start_date, end_date: c.end_date, days_active: days,
         reason: reason || 'Not recorded', reason_source: source, reason_category: cat(reason), in_churn_log: !!logNear };
