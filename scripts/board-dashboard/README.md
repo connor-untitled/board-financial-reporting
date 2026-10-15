@@ -20,6 +20,11 @@ Nothing here writes to a source sheet.
   Expansion pipelines), with the HubSpot split by source beneath it
   (`sql/new_opportunities_split.sql`).
 
+- **Wins (`bookings`):** republished nightly by the wins-logger routine in
+  untitledinternaltooling (`scripts/wins-logger/bookings.py`, SKILL.md STEP
+  10), which mirrors `bookings()` here. Running `build_data.py` still rebuilds
+  it by hand.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in

@@ -151,6 +151,8 @@ def customer_key(name):
 
 
 def bookings(sheet):
+    # Mirrored by scripts/wins-logger/bookings.py in untitledinternaltooling, which republishes this file
+    # nightly. Change the two together.
     rows, flags = [], []
     for tab, year, ncols in (("FY25 WINS (Closed)", 2025, "N"), ("FY26 WINS", 2026, "O")):
         for r in values(sheet, "'%s'!A1:%s300" % (tab, ncols))[1:]:
