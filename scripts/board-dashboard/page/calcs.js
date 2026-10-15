@@ -1,5 +1,5 @@
 // Metabase answers: column names plus row arrays, paired into rows.
-['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel', 'churn_reasons'].forEach((id) => dash.loader(id, {
+['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'opps_channel', 'churn_reasons', 'deck_pipeline'].forEach((id) => dash.loader(id, {
   description: 'Metabase answers with column names and row arrays; this pairs them into rows.',
   fn: ({ answer }) => {
     const a = typeof answer === 'string' ? JSON.parse(answer) : answer;
@@ -251,7 +251,7 @@ dash.calc('funnel_windows_frozen', {
 dash.calc('plan_actuals', {
   inputs: ['kpi', 'bookings', 'revenue'],
   title: 'Plan tracker actuals by month',
-  description: 'Per month and channel: new-customer MRR and new customers (first New software deal since January 2025, by signed date, from the Wins tabs), and for closed months the KPI sheet’s expansion, lost MRR (cancellation plus contraction), opening and ending subscription MRR, plus consumption revenue from the revenue tabs. Direct and Reseller as the KPI sheet splits them.',
+  description: 'Per month and channel: new-customer MRR and new customers (first New software deal since January 2025, by signed date, from the Wins tabs); MRR signed with existing customers (upsells, reactivations, conversions) and all new MRR, also from the Wins tabs; and for closed months the KPI sheet’s expansion, lost MRR (cancellation plus contraction), opening and ending subscription MRR, plus consumption revenue from the revenue tabs. Direct and Reseller as the KPI sheet splits them.',
   fn: (kpi, bookings, revenue) => {
     const sum = (a, f) => a.reduce((t, x) => t + (+f(x) || 0), 0);
     const months = ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03'];
@@ -259,11 +259,14 @@ dash.calc('plan_actuals', {
     months.forEach((m) => {
       const k = kpi.find((x) => x.month === m && x.sub_ending != null);
       const rv = revenue.find((x) => x.month === m);
-      const bk = bookings.filter((b) => b.category === 'Software' && b.new_logo && b.date.slice(0, 7) === m);
-      const through = bk.length ? bk.map((b) => b.date).sort().pop() : null;
+      const sw = bookings.filter((b) => b.category === 'Software' && b.date.slice(0, 7) === m);
+      const bk = sw.filter((b) => b.new_logo), ex = sw.filter((b) => !b.new_logo);
+      const through = sw.length ? sw.map((b) => b.date).sort().pop() : null;
       [['Direct', 'direct'], ['Reseller', 'reseller'], ['Total', 'sub']].forEach(([channel, p]) => {
         const b = channel === 'Total' ? bk : bk.filter((x) => x.channel === channel);
+        const e = channel === 'Total' ? ex : ex.filter((x) => x.channel === channel);
         const row = { month: m, channel, closed: !!k, through, new_mrr: sum(b, (x) => x.mrr), wins: b.length,
+          existing_mrr: sum(e, (x) => x.mrr), all_new_mrr: sum(b, (x) => x.mrr) + sum(e, (x) => x.mrr),
           expansion: null, lost: null, opening: null, ending: null, net_growth: null, consumption: null };
         if (k) {
           row.expansion = +k[p + '_expansion'] || 0;

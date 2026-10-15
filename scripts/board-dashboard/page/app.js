@@ -2,7 +2,7 @@
 (function () {
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
-  const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons'];
+  const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
   // Customer-level churn starts with the Stripe history (stripe_churn.py); a range reaching earlier is labelled as cut short.
@@ -212,10 +212,10 @@
       const totalRev = (x) => x.subscription + x.consumption + x.dsp + x.mail + x.services_retainer + x.services_projects, lastRev = rev[rev.length - 1];
       const G = (n) => goals.find((g) => g.goal.startsWith(n)), by = (n) => G(n).by.replace(/^(\w{3})\w* /, '$1 ');
       const list = [
-        { name: 'Resellers with active end clients', cur: +e.resellers, target: G('Resellers').target, hi: null, by: by('Resellers'), start: G('Resellers').baseline, f: fmt.n },
-        { name: 'Active reseller end clients', cur: +e.end_clients, target: G('Active reseller').target, hi: G('Active reseller').target_high, by: by('Active reseller'), start: G('Active reseller').baseline, f: fmt.n },
-        { name: `Exit monthly revenue (${exG ? exG.by : ''})`, cur: junTotal, target: G('Exit monthly').target, hi: null, by: by('Exit monthly'), start: G('Exit monthly').baseline, f: fmt.usd, done: true },
-        { name: `Period-end MRR, deck basis (${fmt.month(lastRev.month)})`, cur: totalRev(lastRev), target: G('December').target, hi: null, by: by('December'), start: G('December').baseline, f: fmt.usd },
+        { name: 'Resellers with active end clients', cur: +e.resellers, target: G('Resellers').target, hi: null, by: by('Resellers'), start: G('Resellers').baseline, lab: G('Resellers').baseline_short || 'Start', f: fmt.n },
+        { name: 'Active reseller end clients', cur: +e.end_clients, target: G('Active reseller').target, hi: G('Active reseller').target_high, by: by('Active reseller'), start: G('Active reseller').baseline, lab: G('Active reseller').baseline_short || 'Start', f: fmt.n },
+        { name: `Exit monthly revenue (${exG ? exG.by : ''})`, cur: junTotal, target: G('Exit monthly').target, hi: null, by: by('Exit monthly'), start: G('Exit monthly').baseline, lab: G('Exit monthly').baseline_short || 'Start', f: fmt.usd, done: true },
+        { name: `Period-end MRR, deck basis (${fmt.month(lastRev.month)})`, cur: totalRev(lastRev), target: G('December').target, hi: null, by: by('December'), start: G('December').baseline, lab: G('December').baseline_short || 'Start', f: fmt.usd },
       ];
       const trends = [
         { name: 'Avg subscription MRR per customer', a: dec.avg_mrr_per_customer, b: last.avg_mrr_per_customer, f: fmt.usd, good: last.avg_mrr_per_customer >= dec.avg_mrr_per_customer },
@@ -232,7 +232,7 @@
         svg.append('rect').attr('x', labW).attr('y', y0 + 6).attr('width', barW).attr('height', 18).attr('rx', 9).attr('fill', B.grid);
         svg.append('rect').attr('x', labW).attr('y', y0 + 6).attr('width', Math.min(barW, x(g.cur))).attr('height', 18).attr('rx', 9).attr('fill', met ? B.mint : B.peri);
         svg.append('line').attr('x1', labW + x(g.start)).attr('x2', labW + x(g.start)).attr('y1', y0 + 2).attr('y2', y0 + 28).attr('stroke', B.muted).attr('stroke-dasharray', '2 2');
-        svg.append('text').attr('x', labW + x(g.start)).attr('y', y0 + 40).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 10).text('May: ' + g.f(g.start));
+        svg.append('text').attr('x', labW + x(g.start)).attr('y', y0 + 40).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('font-size', 10).text(g.lab + ': ' + g.f(g.start));
         svg.append('line').attr('x1', labW + x(g.target)).attr('x2', labW + x(g.target)).attr('y1', y0 + 2).attr('y2', y0 + 28).attr('stroke', B.fg).attr('stroke-width', 2);
         const curText = g.f(g.cur), inside = x(g.cur) > curText.length * 8 + 12;
         svg.append('text').attr('x', inside ? labW + Math.min(barW, x(g.cur)) - 8 : labW + x(g.cur) + 8).attr('y', y0 + 19).attr('text-anchor', inside ? 'end' : 'start').attr('class', 'ub-seg').attr('font-size', 12).attr('fill', inside ? B.bg : B.fg).text(curText);
@@ -252,8 +252,8 @@
     note() {
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
-      const gl = rows('goals') || [], ecG = gl.find((g) => g.goal.startsWith('Active reseller')) || {}, rsG = gl.find((g) => g.goal.startsWith('Resellers')) || {};
-      return `Reaching ${fmt.n(ecG.target)} end clients by ${ecG.by} needs about ${fmt.n(Math.max(0, ecG.target - e.end_clients))} more; resellers with active clients need ${fmt.n(Math.max(0, rsG.target - e.resellers))} more to reach ${fmt.n(rsG.target)}. Revenue goals are on total monthly revenue. Break-even tracking comes from CFO.ai and is not shown here.`;
+      const gl = rows('goals') || [], ecG = gl.find((g) => g.goal.startsWith('Active reseller')) || {}, rsG = gl.find((g) => g.goal.startsWith('Resellers')) || {}, dcG = gl.find((g) => g.goal.startsWith('December'));
+      return `Reaching ${fmt.n(ecG.target)} end clients by ${ecG.by} needs about ${fmt.n(Math.max(0, ecG.target - e.end_clients))} more; resellers with active clients need ${fmt.n(Math.max(0, rsG.target - e.resellers))} more to reach ${fmt.n(rsG.target)}. Revenue goals are on total monthly revenue.${dcG && dcG.budget ? ` The December goal is the 2026 budget (${fmt.usd(dcG.budget)} on the July deck); the July deck forecast was ${fmt.usd(dcG.deck_forecast)}. The Plan tab compares that forecast with where CFO.ai stands now.` : ''}`;
     },
   };
 
@@ -894,7 +894,7 @@
     },
   };
 
-  // ---------- Deck-format cards (the views the board saw in May)
+  // ---------- Deck-format cards (the views the board has seen in the quarterly decks)
   // Small bar panel inside a larger SVG, used for the churn summary grid.
   function panel(svg, x0, y0, w, h, title, data, f, color, horiz) {
     const g = svg.append('g').attr('transform', `translate(${x0},${y0})`);
@@ -1132,20 +1132,45 @@
     },
   };
 
-  CARDS['c-mayfollow'] = {
-    kind: 'static', src: ['may_pipeline'], data: () => ['may_pipeline'],
+  // The 11 deals on the July 2026 deck's pipeline highlights slide, joined live to HubSpot (sql/deck_pipeline.sql).
+  const mrrRange = (x) => x.est_low === x.est_high ? fmt.usdFull(x.est_low) : `${fmt.usdFull(x.est_low)} to ${fmt.usdFull(x.est_high)}`;
+  const dealState = (x) => (x.is_won ? 'won' : x.is_closed ? 'lost' : 'open');
+  CARDS['c-deckfollow'] = {
+    kind: 'static', src: ['deck_pipeline'], data: () => [id('deck_pipeline')],
     draw(el) {
       const d = need(el, this.data()); if (!d) return null;
-      const tb = card('c-mayfollow').querySelector('tbody');
-      const cells = (x) => [x.deal, x.may_pipeline, fmt.usdFull(x.may_value), x.status_now, x.value_now ? fmt.usdFull(x.value_now) : '—', x.expected_close ? fmt.date(x.expected_close) : '—'];
-      tb.replaceChildren(...d.may_pipeline.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.deal; cells(x).forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }); return tr; }));
-      return { columns: ['Deal', 'May pipeline', 'May value', 'Status now', 'Value now', 'Close date'], rows: d.may_pipeline.map(cells) };
+      const r = d[id('deck_pipeline')].map((x) => ({ ...x, est_low: +x.est_low, est_high: +x.est_high, value_now: +x.value_now }));
+      const tb = card('c-deckfollow').querySelector('tbody');
+      const cells = (x) => [x.deal, x.deck_note, mrrRange(x), x.stage_now || 'Not found in HubSpot', x.value_now ? fmt.usdFull(x.value_now) : '—', x.value_now ? fmt.usdFull(x.value_now / 12) : '—', x.close_date ? fmt.date(x.close_date) : '—'];
+      tb.replaceChildren(...r.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.deal; cells(x).forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }); return tr; }));
+      return { columns: ['Deal', 'July deck note', 'July deck est. MRR', 'HubSpot stage now', 'HubSpot value (TCV)', 'Value a month', 'Close date'], rows: r.map(cells) };
     },
     note() {
-      const m = rows('may_pipeline'); if (!m) return '';
-      const open = m.filter((x) => x.value_now > 0);
-      const top = open.slice().sort((x, z) => z.value_now - x.value_now)[0];
-      return `${open.length} of the ${m.length} deals the May deck highlighted are still open (${fmt.usd(d3.sum(open, (x) => x.value_now))})${top ? `, led by ${top.deal}` : ''}; ${m.length - open.length} closed lost or churned.`;
+      const r = rows(id('deck_pipeline')); if (!r) return '';
+      const g = (s) => r.filter((x) => dealState(x) === s), lo = (a) => d3.sum(a, (x) => +x.est_low), hi = (a) => d3.sum(a, (x) => +x.est_high);
+      const won = g('won'), open = g('open'), lost = g('lost');
+      const wonM = d3.sum(won, (x) => +x.value_now / 12);
+      return `The July deck put these ${r.length} deals at ${fmt.usd(lo(r))} to ${fmt.usd(hi(r))} a month. ${won.length} won (${won.map((x) => x.deal).join(', ') || 'none'}, ${fmt.usd(wonM)} a month against ${fmt.usd(lo(won))} to ${fmt.usd(hi(won))} estimated); ${lost.length} lost or parked (${fmt.usd(lo(lost))} to ${fmt.usd(hi(lost))} a month); ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV in HubSpot, about ${fmt.usd(d3.sum(open, (x) => +x.value_now / 12))} a month against ${fmt.usd(lo(open))} to ${fmt.usd(hi(open))} estimated.`;
+    },
+  };
+
+  // The July 2026 deck's forecast and budget lines (slides 25 and 65) against actuals and the current CFO.ai forecast.
+  CARDS['c-plan-july'] = {
+    kind: 'static', src: ['july_forecast'], data: () => ['july_forecast'],
+    draw(el) {
+      const d = need(el, this.data()); if (!d) return null;
+      const tb = card('c-plan-july').querySelector('tbody');
+      const sg = (v) => (v == null ? '—' : fmt.usdFull(v));
+      const cells = (x) => [fmt.month(x.month), x.status, sg(x.deck_revenue), sg(x.budget_revenue), sg(x.base_revenue), sg(x.upside_revenue), sg(x.base_revenue - x.deck_revenue), sg(x.deck_ebitda), sg(x.base_ebitda), sg(x.deck_cash), sg(x.base_cash)];
+      tb.replaceChildren(...d.july_forecast.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.month; cells(x).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 6 && x.base_revenue < x.deck_revenue) td.className = 'ub-neg'; if (i === 10 && x.base_cash < 0) td.className = 'ub-neg'; tr.appendChild(td); }); return tr; }));
+      return { columns: ['Month', 'Status', 'Revenue: July deck forecast', 'Revenue: budget', 'Revenue: actual or Base', 'Revenue: actual or Upside', 'Base vs July deck', 'EBITDA: July deck', 'EBITDA: actual or Base', 'Cash: July deck', 'Cash: actual or Base'], rows: d.july_forecast.map(cells) };
+    },
+    note() {
+      const f = rows('july_forecast'); if (!f) return '';
+      const q3 = f.filter((x) => x.month <= '2026-09'), dec = f[f.length - 1];
+      const gap = d3.sum(q3, (x) => x.base_revenue - x.deck_revenue), egap = d3.sum(q3, (x) => x.base_ebitda - x.deck_ebitda);
+      const neg = f.find((x) => x.base_cash < 0);
+      return `Q3 revenue came in ${fmt.usd(-gap)} under the July deck forecast and EBITDA ${fmt.usd(-egap)} worse. The deck had December at ${fmt.usd(dec.deck_revenue)} revenue and ${fmt.usd(dec.deck_ebitda)} EBITDA; CFO.ai now has ${fmt.usd(dec.base_revenue)} (Base) to ${fmt.usd(dec.upside_revenue)} (Upside) and ${fmt.usd(dec.base_ebitda)} EBITDA in Base.${neg ? ` Base cash goes below zero in ${fmt.monthLong(neg.month)}.` : ''}`;
     },
   };
 
@@ -1201,7 +1226,10 @@
     'c-pipeline': () => { const p = rows(id('pipeline_open')); if (!p || !rows('bookings')) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
       const lq = lastQ(); return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / lq.tcv)}x ${lq.label} software bookings`; },
     'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
-    'c-mayfollow': () => { const m = rows('may_pipeline'); if (!m) return ''; const open = m.filter((x) => x.value_now > 0); const top = open.slice().sort((x, z) => z.value_now - x.value_now)[0]; return top ? `${open.length} of ${m.length} May deals still open, led by ${top.deal} at ${fmt.usd(top.value_now)}` : `None of the ${m.length} May deals are still open`; },
+    'c-deckfollow': () => { const r = rows(id('deck_pipeline')); if (!r) return ''; const open = r.filter((x) => dealState(x) === 'open'), won = r.filter((x) => dealState(x) === 'won');
+      return `${won.length} of the ${r.length} July deck deals won, ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV`; },
+    'c-plan-july': () => { const f = rows('july_forecast'); if (!f) return ''; const dec = f[f.length - 1];
+      return `December revenue now ${fmt.usd(dec.base_revenue)} to ${fmt.usd(dec.upside_revenue)} against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
     'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
       const max = d3.max(ec, (x) => +x.end_clients); return +e.end_clients >= max ? `Reseller end clients at a record ${e.end_clients}` : `${e.end_clients} reseller end clients across ${e.resellers} resellers`; },
@@ -1229,7 +1257,9 @@
 
   // ---------- plan tracker: targets from CFO.ai (read only), actuals from the Wins tabs, KPI sheet and HubSpot
   const PLAN_M = ['2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03'], PLAN_HIST = ['2026-08', '2026-09'];
-  const tgt = (T, m, ch, k) => { const r = pick(T, (x) => x.month === m && x.channel === ch && x.metric === k); return r ? +r.value : null; };
+  const tgt0 = (T, m, ch, k) => { const r = pick(T, (x) => x.month === m && x.channel === ch && x.metric === k); return r ? +r.value : null; };
+  // All new MRR is scored against CFO.ai's new-customer MRR target plus its expansion MRR target.
+  const tgt = (T, m, ch, k) => { if (k !== 'all_new_mrr') return tgt0(T, m, ch, k); const a = tgt0(T, m, ch, 'new_mrr'), b = tgt0(T, m, ch, 'expansion'); return a == null ? null : a + (b || 0); };
   const actOf = (A, m, ch) => pick(A, (x) => x.month === m && x.channel === ch);
   const caseOf = (T) => ((T && pick(T, (x) => x.case)) || {}).case || 'selected';
   const daysIn = (m) => new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
@@ -1245,7 +1275,7 @@
   }
   const ST_TEXT = { ok: 'on pace', near: 'within 10%', bad: 'behind' };
   const PLAN_ROWS = [
-    ['new_mrr', 'New-customer MRR', 'book', fmt.usd], ['wins', 'New customers', 'book', fmt.n], ['expansion', 'Expansion MRR', 'close', fmt.usd],
+    ['all_new_mrr', 'All new MRR (signed)', 'book', fmt.usd], ['new_mrr', 'New-customer MRR', 'book', fmt.usd], ['wins', 'New customers', 'book', fmt.n], ['expansion', 'Expansion MRR', 'close', fmt.usd],
     ['lost', 'MRR lost (churn and contraction)', 'close', fmt.usd, true], ['net_growth', 'Net change in MRR', 'close', fmt.signedUsd], ['ending', 'Ending MRR', 'close', fmt.usd],
   ];
   // New-customer MRR and count from the Wins tabs over the last 45 days, at a monthly rate.
@@ -1268,7 +1298,7 @@
           foot: p ? `${p.d} of ${p.n} days · ${ST_TEXT[st] || ''}` : ST_TEXT[st] || '', mark: { source: 'plan_actuals', field: k, where: `month=${m}` } });
         tab.push([label, f(v), p ? f(proj) : '', f(t), ST_TEXT[st] || '']);
       };
-      add('New-customer MRR', 'Total', 'new_mrr', fmt.usd); add('Direct new MRR', 'Direct', 'new_mrr', fmt.usd); add('Reseller new MRR', 'Reseller', 'new_mrr', fmt.usd);
+      add('All new MRR', 'Total', 'all_new_mrr', fmt.usd); add('New-customer MRR', 'Total', 'new_mrr', fmt.usd); add('Direct new MRR', 'Direct', 'new_mrr', fmt.usd); add('Reseller new MRR', 'Reseller', 'new_mrr', fmt.usd);
       add('New customers', 'Total', 'wins', fmt.n); add('Direct new customers', 'Direct', 'wins', fmt.n); add('Reseller new customers', 'Reseller', 'wins', fmt.n);
       const l = last45(d.bookings), lt = tgt(T, m, 'Total', 'new_mrr'), lst = planStatus(l.mrr, lt);
       items.push({ label: 'Last 45 days, monthly pace', value: fmt.usd(l.mrr), delta: ST_TEXT[lst] || '', good: lst == null ? null : lst !== 'bad', compText: `vs ${fmt.usd(lt)} target`, foot: `${l.n} new customers, ${fmt.usd(l.sum)} new MRR` });
@@ -1282,7 +1312,9 @@
       const dr = actOf(A, m, 'Direct'), rr = actOf(A, m, 'Reseller'); if (!dr || !rr) return '';
       const dg = dr.new_mrr * f - tgt(T, m, 'Direct', 'new_mrr'), rg = rr.new_mrr * f - tgt(T, m, 'Reseller', 'new_mrr');
       const say = (n, g) => `${n} ${g >= 0 ? 'ahead by' : 'short by'} ${fmt.usd(Math.abs(g))}`;
-      return `${p ? 'At the month-to-date pace' : 'In ' + fmt.monthLong(m)}: ${say('Direct', dg)}, ${say('Reseller', rg)} against the ${caseOf(T)} case. Expansion and lost MRR are scored once the month closes.`;
+      const tr = actOf(A, m, 'Total'), all = tr ? tr.all_new_mrr * f : null, allT = tgt(T, m, 'Total', 'all_new_mrr');
+      const lead = all != null ? `All new MRR ${p ? 'is pacing to' : 'came to'} ${fmt.usd(all)} against ${fmt.usd(allT)}. ` : '';
+      return `${lead}${p ? 'At the month-to-date pace, new customers' : 'New customers in ' + fmt.monthLong(m)}: ${say('Direct', dg)}, ${say('Reseller', rg)} against the ${caseOf(T)} case. Expansion and lost MRR from the KPI sheet are scored once the month closes.`;
     },
   };
 
@@ -1291,13 +1323,16 @@
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const T = d[id('plan_targets')], A = d.plan_actuals, cs = caseOf(T), ms = PLAN_HIST.concat(PLAN_M);
-      const SR = [{ key: 'Direct', label: 'Direct', color: B.peri }, { key: 'Reseller', label: 'Reseller', color: B.sky }];
-      const data = ms.map((m) => { const p = paceOf(m), dr = actOf(A, m, 'Direct'), rr = actOf(A, m, 'Reseller');
-        return { month: m, Direct: dr ? dr.new_mrr : 0, Reseller: rr ? rr.new_mrr : 0, has: m <= S().today.slice(0, 7), pace: p ? ((dr ? dr.new_mrr : 0) + (rr ? rr.new_mrr : 0)) * p.f : null, target: tgt(T, m, 'Total', 'new_mrr') }; });
-      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target`], [B.muted, 'Pace for the open month']]));
+      const SR = [{ key: 'Direct', label: 'New customers, Direct', color: B.peri }, { key: 'Reseller', label: 'New customers, Reseller', color: B.sky },
+        { key: 'Existing', label: 'Existing customers (upsells, reactivations)', color: B.mint }];
+      const data = ms.map((m) => { const p = paceOf(m), dr = actOf(A, m, 'Direct'), rr = actOf(A, m, 'Reseller'), tr = actOf(A, m, 'Total');
+        const r = { month: m, Direct: dr ? dr.new_mrr : 0, Reseller: rr ? rr.new_mrr : 0, Existing: tr ? tr.existing_mrr : 0, has: m <= S().today.slice(0, 7), target: tgt(T, m, 'Total', 'all_new_mrr'),
+          tNew: tgt(T, m, 'Total', 'new_mrr'), tExp: tgt(T, m, 'Total', 'expansion') };
+        r.total = r.Direct + r.Reseller + r.Existing; r.pace = p ? r.total * p.f : null; return r; });
+      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target (new customers plus expansion)`], [B.muted, 'Pace for the open month']]));
       const { w, h } = size(el, opt, (opt && opt.height) || 300);
       const svg = svgFor(el, w, h);
-      const max = d3.max(data, (r) => Math.max(r.Direct + r.Reseller, r.pace || 0, r.target || 0)) || 1;
+      const max = d3.max(data, (r) => Math.max(r.total, r.pace || 0, r.target || 0)) || 1;
       const y = d3.scaleLinear([0, max * 1.15], [h - 28, 16]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usdS(t)));
       const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.28), bw = x.bandwidth();
@@ -1312,17 +1347,20 @@
         if (r.target != null) svg.append('line').attr('x1', x(r.month) - 4).attr('x2', x(r.month) + bw + 4).attr('y1', y(r.target)).attr('y2', y(r.target)).attr('stroke', B.amber).attr('stroke-width', 2.5).attr('stroke-linecap', 'round');
         svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(r.month) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(r.month));
         svg.append('rect').attr('x', x(r.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
-          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(r.month), [[B.peri, 'Direct', fmt.usdFull(r.Direct)], [B.sky, 'Reseller', fmt.usdFull(r.Reseller)]]
-            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, fmt.usdFull(r.target)]] : [[null, 'Before the plan', '']])))
+          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(r.month), SR.map((s) => [s.color, s.label, fmt.usdFull(r[s.key])]).concat([[null, 'All new MRR', fmt.usdFull(r.total)]])
+            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, `${fmt.usdFull(r.target)} (${fmt.usdFull(r.tNew)} new, ${fmt.usdFull(r.tExp || 0)} expansion)`]] : [[null, 'Before the plan', '']])))
           .on('mouseleave', () => tip.hide());
       });
-      return { columns: ['Month', 'Direct new MRR', 'Reseller new MRR', 'Total', 'Full-month pace', `${cs} target`],
-        rows: data.map((r) => [fmt.monthLong(r.month), r.has ? fmt.usdFull(r.Direct) : '', r.has ? fmt.usdFull(r.Reseller) : '', r.has ? fmt.usdFull(r.Direct + r.Reseller) : '', r.pace != null ? fmt.usdFull(r.pace) : '', r.target != null ? fmt.usdFull(r.target) : '']) };
+      return { columns: ['Month', 'New customers, Direct', 'New customers, Reseller', 'Existing customers', 'All new MRR', 'Full-month pace', `${cs} target`, 'Target: new customers', 'Target: expansion'],
+        rows: data.map((r) => [fmt.monthLong(r.month), r.has ? fmt.usdFull(r.Direct) : '', r.has ? fmt.usdFull(r.Reseller) : '', r.has ? fmt.usdFull(r.Existing) : '', r.has ? fmt.usdFull(r.total) : '', r.pace != null ? fmt.usdFull(r.pace) : '',
+          r.target != null ? fmt.usdFull(r.target) : '', r.tNew != null ? fmt.usdFull(r.tNew) : '', r.tExp != null ? fmt.usdFull(r.tExp) : '']) };
     },
     note() {
-      const T = rows(id('plan_targets')); if (!T) return '';
-      const a = tgt(T, PLAN_M[0], 'Total', 'new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'new_mrr');
-      return `The ${caseOf(T)} case needs new-customer MRR to rise from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March (${fmt.pct(Math.pow(z / a, 1 / 5) - 1)} a month). August and September are shown for the run rate going in.`;
+      const T = rows(id('plan_targets')), A = rows('plan_actuals'); if (!T || !A) return '';
+      const a = tgt(T, PLAN_M[0], 'Total', 'all_new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'all_new_mrr');
+      const m = planMonth(), p = paceOf(m), r = actOf(A, m, 'Total');
+      const now = r && p ? ` ${fmt.monthLong(m)} so far: ${fmt.usd(r.all_new_mrr)}, pacing to ${fmt.usd(r.all_new_mrr * p.f)} against ${fmt.usd(tgt(T, m, 'Total', 'all_new_mrr'))}.` : '';
+      return `All MRR signed in the Wins tab, new and existing customers. The ${caseOf(T)} case target (new-customer MRR plus expansion MRR) rises from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March.${now}`;
     },
   };
 
@@ -1376,7 +1414,7 @@
     },
     note() {
       const T = rows(id('plan_targets')); if (!T) return '';
-      return `Each plan month shows the actual against the ${caseOf(T)} case target: green on pace, amber within 10%, red behind. New-customer MRR and counts update daily from the Wins tabs; the rest fills in after each month closes.`;
+      return `Each plan month shows the actual against the ${caseOf(T)} case target: green on pace, amber within 10%, red behind. All new MRR, new-customer MRR and counts update from the Wins tabs; the rest fills in after each month closes.`;
     },
   };
 
@@ -1463,7 +1501,7 @@
   }
 
   // ---------- as-of footers
-  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Cash Forecast Q4'26-Q1'27 targets (read only)", opps_channel: 'HubSpot deals via Metabase', churn_reasons: 'HubSpot company churn reasons via Metabase' };
+  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Cash Forecast Q4'26-Q1'27 targets (read only)", opps_channel: 'HubSpot deals via Metabase', churn_reasons: 'HubSpot company churn reasons via Metabase', deck_pipeline: 'HubSpot deals via Metabase' };
   function footer(c) {
     const info = rows('snapshot_info') || [];
     const parts = (CARDS[c].src || []).filter((x) => x !== 'goals').map((x) => {

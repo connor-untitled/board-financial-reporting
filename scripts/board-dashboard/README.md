@@ -8,7 +8,7 @@ Nothing here writes to a source sheet.
 | --- | --- |
 | `stripe_churn.py` | Pulls Stripe and writes customer cancellations and monthly MRR movements from January 2025 under the board KPI rules |
 | `build_data.py` | Reads the KPI sheet and TEAM REVENUE WINS with the service account, plus the churn log export and churn reasons, and writes one JSON per dashboard source to `.board-dashboard/out/` |
-| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split, opportunities by channel), as stored in the dashboard |
+| `sql/` | The live Metabase queries (reseller end clients, MQLs, open pipeline, new-opportunity split, opportunities by channel, churn reasons, July deck pipeline follow-up), as stored in the dashboard |
 | `page/` | The dashboard page: `font.js` (embedded Inter, OFL), `core.js` (charts, callouts, sparklines, copy-to-deck), `calcs.js` (period roll-ups readers can inspect), `app.js` (cards and notes), `style.css` + `gen.py` (generate `index.html`) |
 
 ## Sources and rules
@@ -20,6 +20,11 @@ Nothing here writes to a source sheet.
   Expansion pipelines), with the HubSpot split by source beneath it
   (`sql/new_opportunities_split.sql`).
 
+- **Wins (`bookings`):** republished nightly by the wins-logger routine in
+  untitledinternaltooling (`scripts/wins-logger/bookings.py`, SKILL.md STEP
+  10), which mirrors `bookings()` here. Running `build_data.py` still rebuilds
+  it by hand.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in
@@ -29,6 +34,10 @@ targets by channel", for the case selected in its Case toggle).
 - **CFO.ai is read only.** The `plan_targets` dataset calls
   `inspect_table_blocks` and nothing else; changes to the model are made in
   CFO.ai, by a person, and are asked about first.
+- **All new MRR:** every software MRR row in the Wins tabs by signed date (new
+  customers plus upsells, reactivations and conversions), scored against
+  CFO.ai's new-customer MRR target plus its expansion MRR target. The Wins tab
+  stays the source until the source rebase.
 - **Actuals:** new-customer MRR and new customers from the Wins tabs by signed
   date (the open month counts to date, with a full-month pace); expansion, lost
   MRR, net change and ending MRR from the KPI sheet once a month closes;
@@ -42,6 +51,29 @@ targets by channel", for the case selected in its Case toggle).
   before each board meeting.
 - CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
   following month, so its view of a month lags this tab's.
+
+### Board baseline: the July 21, 2026 deck
+
+The last deck the board saw (Q3 meeting, covering Q2) is the reference point.
+Checked October 14, 2026:
+
+- **Ties exactly:** monthly revenue by line for January to June 2026, H1 churn
+  (29 customers, $23,250; 2025 halves 33 / $20,100 and 26 / $21,550), 2026
+  bookings to July 17 ($463,224, 80 deals, 43 new, $27,900 contracted MRR,
+  $25,910 DSP; Q1 $105,340, Q2 $335,084) and active customers (87 in June).
+- **Close:** reseller end clients in June are 223 with 29 resellers on the deck
+  and 225 with 28 in Metabase now (late platform activity).
+- **Goals:** the December target ($184K) is the 2026 budget line on the deck's
+  Path to Break Even slide ($183,944); the deck's forecast was $186,864. The
+  60-reseller and 400 to 500 end-client goals come from the May deck and were
+  not restated in July. Goal baselines now use the July deck's June figures.
+- **Forecast:** `july_forecast` holds the deck's July to December forecast and
+  budget lines next to CFO.ai actuals and its current Base and Upside forecast
+  (Plan tab, "Against the July 2026 board forecast").
+- **Pipeline:** `sql/deck_pipeline.sql` follows the 11 deals on the deck's
+  pipeline highlights slide in HubSpot. It replaces the May deck follow-up.
+- **Trial motion:** the deck says trials continue, on request after discovery
+  and a demo, rather than as the default entry point.
 
 ### Running notes: proposed CFO.ai target changes (for review, not applied)
 
