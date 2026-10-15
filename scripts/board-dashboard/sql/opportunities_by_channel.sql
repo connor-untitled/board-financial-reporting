@@ -14,6 +14,7 @@ WITH d AS (
   JOIN hubspot.deal_pipeline_stage ps ON ps.stage_id = d.deal_pipeline_stage_id
   WHERE d.deal_pipeline_id IN ('772338804', '785877425')
     AND NOT COALESCE(d.is_deleted, false) AND NOT COALESCE(d._fivetran_deleted, false)
+    AND d.deal_id NOT IN (63450358167)  -- deleted in HubSpot; Fivetran never marked it deleted
 )
 SELECT month, block, SUM(created) AS created, SUM(won) AS won, SUM(lost) AS lost
 FROM (
