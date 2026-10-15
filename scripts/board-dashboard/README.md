@@ -29,6 +29,10 @@ targets by channel", for the case selected in its Case toggle).
 - **CFO.ai is read only.** The `plan_targets` dataset calls
   `inspect_table_blocks` and nothing else; changes to the model are made in
   CFO.ai, by a person, and are asked about first.
+- **All new MRR:** every software MRR row in the Wins tabs by signed date (new
+  customers plus upsells, reactivations and conversions), scored against
+  CFO.ai's new-customer MRR target plus its expansion MRR target. The Wins tab
+  stays the source until the source rebase.
 - **Actuals:** new-customer MRR and new customers from the Wins tabs by signed
   date (the open month counts to date, with a full-month pace); expansion, lost
   MRR, net change and ending MRR from the KPI sheet once a month closes;
