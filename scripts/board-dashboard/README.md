@@ -25,6 +25,11 @@ Nothing here writes to a source sheet.
   10), which mirrors `bookings()` here. Running `build_data.py` still rebuilds
   it by hand.
 
+- **Board version reads the snapshot only.** The Live / Board snapshot control
+  is removed: live queries run on the viewer's own Metabase and CFO.ai access,
+  which board members do not have. The live datasets and SQL stay in place;
+  retake every `*_frozen` set before each send.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in

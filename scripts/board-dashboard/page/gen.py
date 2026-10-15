@@ -73,7 +73,6 @@ out=f'''<style>
         </div>
       </div>
       <div class="ub-control"><span class="ub-control-label">Compare with</span>{seg('ub-seg-cmp','Compare with',[('prior','Previous period'),('yoy','Same period last year')])}<span class="ub-cmplabel"></span></div>
-      <div class="ub-control"><span class="ub-control-label">Live sources</span>{seg('ub-seg-data','Live sources',[('frozen','Board snapshot'),('live','Live')])}</div>
       <div class="ub-control"><span class="ub-control-label">Theme</span>{seg('ub-seg-theme','Theme',[('light','Light'),('dark','Dark')])}</div>
     </div>
     <nav class="ub-tabs" aria-label="Sections">{''.join(f'<button type="button" data-tab="{k}">{v[0]}</button>' for k,v in tabs)}</nav>
