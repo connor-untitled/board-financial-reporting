@@ -25,6 +25,19 @@ Nothing here writes to a source sheet.
   10), which mirrors `bookings()` here. Running `build_data.py` still rebuilds
   it by hand.
 
+- **Board version reads the snapshot only.** The Live / Board snapshot control
+  is removed: live queries run on the viewer's own Metabase and CFO.ai access,
+  which board members do not have. The live datasets and SQL stay in place;
+  retake every `*_frozen` set before each send.
+
+- **Churn detail exceptions** (`calcs.js`, `BILLED_AS` and `NOT_A_CHURN`):
+  Painted Paper is Compound Foundry's billing name in Stripe. Aprio's March 2026
+  cancellation is left out: it was the billing half of Bedzzz Express
+  (Dreamcraft), unpaid since July 2025, and Bedzzz's subscription rose to the
+  full $2,000 when it was cancelled, so the account churns once, as Bedzzz
+  Express in July 2026. The KPI sheet still shows March's −$1,000 cancellation
+  and +$1,000 expansion, which net to zero.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in

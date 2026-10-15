@@ -75,17 +75,17 @@ CATEGORIES = [
     ("Not recorded", r"^unknown$|no specific reason|really weird|^unspecified|no reason documented|no explicit reason|no churn reason recorded|no reason given"),
     ("Went unresponsive", r"disengage|never particularly responsive|unresponsive|never responded"),
     ("Service miss", r"customer success miss|notice that was never received|bad email send|missed communication|went to spam and was missed"),
-    ("Business closed", r"shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down"),
+    ("Business closed", r"shut(ting)? down|closure|business has failed|sold to|disbanded|bankrupt|insolven|closing down|out of business"),
     ("Non-payment", r"non-payment|no payment|overdue|ghosted payment|can't pay|non-response on payment|unpaid|stopped paying"),
     ("Lost to competitor", r"competitor|rb2b|switched provider"),
     ("Compliance", r"legal|compliance"),
     ("Low adoption", r"low perceived need|never got well implemented|consistently make money|no longer have a need|inherited|never converted|use-case|use case|never really|didn't really engage|no buy-in|low usage|underutiliz"),
     ("Champion left", r"left the company|stakeholder|champion|implementer left|cheerleader"),
     ("Budget cuts", r"pe ownership|cost-cutting|cut costs|budget|discounted rate"),
-    ("Business change", r"agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause"),
+    ("Business change", r"agency of record|contract expir|non-renewal|downstream churn|end-client cancelled|event-based|one-off|business decline|marketing around|pivot|downsiz|pre-launch|pre-order|restructur|seasonal|paused|pause|change of priorit|priorities changed"),
     ("Product fit", r"deliverability|spam|complaints"),
     ("Pricing dispute", r"pricing dispute|pricing change"),
-    ("Low ROI or value", r"roi|justify|results|performance|value|cost"),
+    ("Low ROI or value", r"roi|justify|results|performance|value|cost|lack of traction|no traction"),
 ]
 
 
