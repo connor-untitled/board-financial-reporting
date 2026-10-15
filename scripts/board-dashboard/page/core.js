@@ -179,8 +179,12 @@
     lg.replaceChildren(...items.map(([c, t]) => { const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = c; s.append(i, t); return s; }));
   }
 
+  // Chart callouts (the amber tags such as "Consumption low" or a deal name) are switched off for now.
+  // Set to true to bring every one back; the cards still pass their notes.
+  const CALLOUTS = false;
   // A labelled callout: a dot on the mark, a short leader, and a text tag kept inside the chart.
   function callout(svg, w, x, y, text, opt) {
+    if (!CALLOUTS) return null;
     const o = opt || {}, up = o.up !== false, ty = Math.max(14, up ? y - (o.lift || 30) : y + (o.lift || 30));
     const g = svg.append('g').attr('class', 'ub-callout');
     g.append('line').attr('x1', x).attr('x2', x).attr('y1', y + (up ? -3 : 3)).attr('y2', ty + (up ? 6 : -14)).attr('stroke', B.amber).attr('stroke-width', 1.2);
@@ -209,7 +213,7 @@
     const { w, h } = size(el, opt, opt.height || 300);
     const svg = svgFor(el, w, h);
     const max = d3.max(rows, (r) => d3.sum(series, (s) => r[s.key] || 0)) || 1;
-    const y = d3.scaleLinear([0, max * (opt.notes && opt.notes.length ? 1.42 : 1.14)], [h - 28, 16]).nice();
+    const y = d3.scaleLinear([0, max * (CALLOUTS && opt.notes && opt.notes.length ? 1.42 : 1.14)], [h - 28, 16]).nice();
     const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, yfmt(t)));
     const x = d3.scaleBand(rows.map((r) => r.month), [left + 4, w - 4]).padding(0.24);
     yAxis(svg, y, left, w - 4, yfmt);
