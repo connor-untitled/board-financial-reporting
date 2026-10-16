@@ -108,6 +108,9 @@ forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
    month rising to about $10,900 by March, 8 to 12 wins a month). Same total
    new MRR. Watch: the model's 7% monthly reseller billing-lapse allowance, and
    consumption being 99.6% reseller.
+5. **Consumption split.** CFO.ai shows consumption revenue as 99.6% reseller,
+   but no Direct customers are on the consumption model, so it should be 100%
+   reseller. Raised October 16, 2026; to fix in CFO.ai after the board meeting.
 
 ## Date range
 
