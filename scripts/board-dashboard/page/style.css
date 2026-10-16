@@ -159,3 +159,7 @@
 #ub .ub-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 8px; font-size: var(--cds-font-size-caption); color: var(--u-muted); }
 #ub .ub-pager button { font: inherit; background: none; border: 1px solid var(--u-line); border-radius: 6px; padding: 4px 10px; color: var(--u-fg); cursor: pointer; }
 #ub .ub-pager button:disabled { opacity: 0.4; cursor: default; }
+/* Financial review tables, laid out like the deck's budget variance slides */
+#ub .ub-fin th { color: var(--u-fg); font-weight: 700; }
+#ub .ub-fin tr.ub-fin-band td { background: var(--u-line); font-weight: 700; }
+#ub .ub-fin tr.ub-fin-total td { border-top: 2px solid var(--u-fg); }

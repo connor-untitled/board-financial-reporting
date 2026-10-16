@@ -38,6 +38,10 @@ Nothing here writes to a source sheet.
   Express in July 2026. The KPI sheet still shows March's −$1,000 cancellation
   and +$1,000 expansion, which net to zero.
 
+- **Enterprise pipeline is retired.** It was folded into the Opportunity
+  pipeline; the pipeline cards count any deal still in it as Opportunity, and
+  its closed-lost deals will be migrated there in HubSpot.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in
@@ -111,6 +115,18 @@ forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
 5. **Consumption split.** CFO.ai shows consumption revenue as 99.6% reseller,
    but no Direct customers are on the consumption model, so it should be 100%
    reseller. Raised October 16, 2026; to fix in CFO.ai after the board meeting.
+
+## Financial review
+
+The Financial review tab mirrors the deck's path-to-break-even and budget variance slides. Its one dataset, `fin_review`, is flat rows (`kind` meta, month or line; the dashboard runtime does not pass nested lists through) read by hand from CFO.ai (read only): "P&L - This Month vs Budget" and "P&L - YTD vs Budget" with comparison Budget 2026, and "P&L - TTM" for the monthly series, all from Main Scenario.
+
+- The path-to-break-even chart shows actuals through the close, then the current Upside case from Cash Forecast Q4'26-Q1'27 (Forecast P&L, read only) as lighter bars, with the budget as dotted (B) lines. Re-read the Upside months with each refresh.
+- The variance tables follow the deck's columns (month, month budget, month variance, YTD budget, YTD variance); Copy table also carries YTD actual.
+- Variance is actual minus budget (CFO.ai's delta column is budget minus actual). Green marks a favorable variance and red an unfavorable one (revenue under budget, expenses over), as on the deck.
+- Expenses are COGS plus operating expenses; CFO.ai's "Total Expenses" is opex only.
+- CFO.ai's EBITDA includes other income, so revenue minus expenses does not equal EBITDA exactly.
+- Re-read after each close and update `close_month`. The tab follows whatever close the file holds.
+- The "Against the July 2026 board forecast" card sits on this tab.
 
 ## Date range
 
