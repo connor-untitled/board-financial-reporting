@@ -163,3 +163,7 @@
 #ub .ub-fin th { color: var(--u-fg); font-weight: 700; }
 #ub .ub-fin tr.ub-fin-band td { background: var(--u-line); font-weight: 700; }
 #ub .ub-fin tr.ub-fin-total td { border-top: 2px solid var(--u-fg); }
+#ub .ub-stmt th, #ub .ub-stmt td { padding: 5px 8px; font-size: 12px; white-space: nowrap; }
+#ub .ub-stmt th.ub-stmt-group { text-align: center; border-bottom: 1px solid var(--u-line); }
+#ub .ub-stmt .ub-stmt-first { border-left: 1px solid var(--u-line); }
+#ub .ub-stmt tr.ub-fin-band td { text-align: left; }

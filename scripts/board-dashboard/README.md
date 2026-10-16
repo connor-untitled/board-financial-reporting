@@ -128,6 +128,15 @@ The Financial review tab mirrors the deck's path-to-break-even and budget varian
 - Re-read after each close and update `close_month`. The tab follows whatever close the file holds.
 - The "Against the July 2026 board forecast" card sits on this tab.
 
+### Financial statements (quarter vs budget, year to date and forecast)
+
+Two more cards on the Financial review tab cover the deck's financial summary slides from one dataset, `fin_statements` (long-form flat rows).
+
+- **Quarter against budget** switches between Summary, Income statement, Balance sheet and Cash flows. Each closed month of the quarter shows actual, budget and variance, then the quarter: summed for flows, the latest month for balances. Months after the last close are left out until they close, and the quarter column is labelled "to date" until then. Copy image copies the statement showing.
+- **2026 year to date and forecast** is the monthly summary for January to December: actuals through the close, then the current Upside case.
+- Sources, all read only with `inspect_table_blocks`, format `ream`: Main Scenario `Monthly Summary Statement#b30`, `P&L - TTM#17c`, `Balance Sheet - TTM#25e` and `Cash Flows - TTM#30a` with comparison `Budget 2026#218`; Cash Forecast Q4'26-Q1'27 `Monthly Summary — Forecast#2b6` for the Upside months.
+- Save each read's row lines to `.board-dashboard/cfo/` (`sum`, `pl`, `bs`, `cf`, `ytd`), update the column map in `fin_statements/build.py` if the months move, then run it. It refuses to write unless revenue and expense lines sum to their totals, assets equal liabilities and equity, operating cash flow sums, cash reconciles opening to closing and to the balance sheet, and the Upside months match `fin_review`.
+
 ## Date range
 
 The page has a preset menu (last 90 days, month to date, last month, quarter to

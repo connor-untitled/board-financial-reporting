@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -1376,6 +1376,149 @@
     },
   };
 
+  // ---------- Financial statements: the quarter against budget (one card, four statements) and the year to date with the forecast
+  // fin_statements is long-form rows: {kind q|ytd|meta, statement, order, line, style band|line|sub|total|pct, better up|down, ratio_of, month, basis actual|budget|upside, value}.
+  const STMT = { summary: 'Summary', pl: 'Income statement', bs: 'Balance sheet', cf: 'Cash flows' };
+  const stOf = (r) => {
+    if (!r || !r.length) return null;
+    const num = (v) => (v == null || v === '' ? null : +v), meta = r.find((x) => x.kind === 'meta');
+    const rowsOf = (kind, st) => {
+      const by = d3.group(r.filter((x) => x.kind === kind && x.statement === st), (x) => +x.order);
+      return [...by.keys()].sort(d3.ascending).map((o) => { const g = by.get(o), h = g[0], vals = {};
+        g.forEach((x) => { if (x.month) vals[String(x.month).slice(0, 7) + '|' + x.basis] = num(x.value); });
+        return { line: h.line, style: h.style, better: h.better || 'up', ratio: h.ratio_of || null, vals }; });
+    };
+    return { close: meta ? String(meta.month).slice(0, 7) : null, rowsOf };
+  };
+  const ST = () => stOf(rows('fin_statements'));
+  const zf = (v) => (v == null ? '' : Math.abs(v) < 0.5 ? '–' : fmt.usdFull(v));
+  const pf = (v) => (v == null ? '' : d3.format('.1%')(v));
+  const ptf = (v) => (v == null ? '' : Math.abs(v) < 0.0005 ? '–' : (v > 0 ? '+' : '−') + d3.format('.1f')(Math.abs(v) * 100) + ' pts');
+  const finTone = (better, v) => (v == null || Math.abs(v) < 0.5e-3 ? null : (better === 'down' ? v < 0 : v > 0) ? 'good' : 'bad');
+  // A table with a group header row (a month, the quarter) over its sub-columns; rows are {band} or {style, cells}.
+  function stmtGrid(el, groups, grid, opt) {
+    const nC = 1 + d3.sum(groups, (g) => g.cols.length);
+    const fillOf = (st) => (st === 'total' ? { bg: d3.interpolateRgb(B.card, B.soft)(0.24), fg: B.fg } : null);
+    if (!opt || !opt.export) {
+      let wrapEl = el.querySelector(':scope > .ub-tablewrap');
+      if (!wrapEl) { wrapEl = document.createElement('div'); wrapEl.className = 'ub-tablewrap'; el.appendChild(wrapEl); }
+      const t = document.createElement('table'); t.className = 'ub-table ub-fin ub-stmt';
+      const th = document.createElement('thead'), g1 = document.createElement('tr'), g2 = document.createElement('tr');
+      const c0 = document.createElement('th'); c0.textContent = ''; g1.appendChild(c0);
+      const d0 = document.createElement('th'); d0.textContent = 'Driver'; g2.appendChild(d0);
+      groups.forEach((g) => { const h = document.createElement('th'); h.colSpan = g.cols.length; h.textContent = g.label; h.className = 'ub-stmt-group'; g1.appendChild(h);
+        g.cols.forEach((c, i) => { const s = document.createElement('th'); s.textContent = c; if (i === 0) s.className = 'ub-stmt-first'; g2.appendChild(s); }); });
+      th.append(g1, g2); t.appendChild(th);
+      const tb = document.createElement('tbody');
+      grid.forEach((r) => {
+        const tr = document.createElement('tr');
+        if (r.band) { tr.className = 'ub-fin-band'; const td = document.createElement('td'); td.colSpan = nC; td.textContent = r.band; tr.appendChild(td); tb.appendChild(tr); return; }
+        tr.className = 'ub-stmt-' + r.style; const f = fillOf(r.style);
+        r.cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c.t;
+          if (f) { td.style.background = f.bg; td.style.color = f.fg; }
+          if (c.tone) td.style.color = c.tone === 'good' ? B.good : B.bad;
+          if (c.first) td.className = 'ub-stmt-first';
+          if (r.style === 'total' || r.style === 'sub') td.style.fontWeight = '700';
+          if (r.style === 'pct' && i === 0) td.style.paddingLeft = '22px';
+          tr.appendChild(td); });
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb); wrapEl.replaceChildren(t);
+    }
+    // SVG for Copy image
+    const flat = [''].concat(...groups.map((g) => g.cols));
+    const colW = flat.map((h, i) => Math.max(i ? 9 : 6, String(h).length, ...grid.filter((r) => !r.band).map((r) => String(r.cells[i].t).length)) * (i ? 8 : 7.6) + (i ? 18 : 24));
+    const w = d3.sum(colW), rh = 26, top = rh * 2, h = top + rh * grid.length;
+    const svg = svgFor(el, w, h);
+    if (!opt || !opt.export) svg.attr('class', 'ub-chart ub-offscreen');
+    svg.append('rect').attr('width', w).attr('height', h).attr('fill', B.card);
+    const xs = colW.map((_, i) => d3.sum(colW.slice(0, i)));
+    const tx = (i, y, s, color, bold, anchor) => svg.append('text').attr('x', anchor === 'middle' ? xs[i] : i ? xs[i] + colW[i] - 8 : xs[i] + 8).attr('y', y).attr('text-anchor', anchor || (i ? 'end' : 'start'))
+      .attr('fill', color).attr('font-size', 12).attr('font-weight', bold ? 700 : 400).text(s);
+    let ci = 1;
+    groups.forEach((g) => { const x0 = xs[ci], gw = d3.sum(colW.slice(ci, ci + g.cols.length));
+      svg.append('text').attr('x', x0 + gw / 2).attr('y', 17).attr('text-anchor', 'middle').attr('fill', B.fg).attr('font-size', 12).attr('font-weight', 700).text(g.label);
+      svg.append('line').attr('x1', x0 + 4).attr('x2', x0 + gw - 4).attr('y1', rh - 2).attr('y2', rh - 2).attr('stroke', B.line);
+      g.cols.forEach((c, k) => tx(ci + k, rh + 17, c, B.muted, true)); ci += g.cols.length; });
+    tx(0, rh + 17, 'Driver', B.muted, true);
+    grid.forEach((r, j) => {
+      const y0 = top + rh * j;
+      if (r.band) { svg.append('rect').attr('x', 0).attr('y', y0).attr('width', w).attr('height', rh).attr('fill', B.line); tx(0, y0 + 17, r.band, B.fg, true); return; }
+      const f = fillOf(r.style); if (f) svg.append('rect').attr('x', 0).attr('y', y0).attr('width', w).attr('height', rh).attr('fill', f.bg);
+      r.cells.forEach((c, i) => { const col = c.tone ? (c.tone === 'good' ? B.good : B.bad) : f ? f.fg : B.fg;
+        const t = tx(i, y0 + 17, c.t, col, r.style === 'total' || r.style === 'sub'); if (r.style === 'pct' && i === 0) t.attr('x', 22); });
+      svg.append('line').attr('x1', 0).attr('x2', w).attr('y1', y0 + rh - 0.5).attr('y2', y0 + rh - 0.5).attr('stroke', B.grid);
+    });
+  }
+  // Point-in-time lines: a quarter shows the last month's balance (or the first month's opening balance), not a sum.
+  const qAgg = (st, line) => (st === 'bs' || /Closing Balance/.test(line) ? 'last' : /Opening Balance/.test(line) ? 'first' : 'sum');
+  CARDS['c-fin-q'] = {
+    kind: 'finq', src: ['fin_statements'], data: () => ['fin_statements'],
+    draw(el, opt) {
+      $$('.ub-seg-stmt button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.stmt));
+      const d = need(el, this.data()); if (!d) return null;
+      const F = stOf(d.fin_statements); if (!F) return null;
+      const st = state.stmt, R = F.rowsOf('q', st);
+      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => R.some((r) => r.vals[m + '|actual'] != null) && m <= F.close);
+      const full = ms.length === 3, qLabel = st === 'bs' ? `Q3 '26 ${full ? 'end' : 'to date'} (${fmt.month(ms[ms.length - 1]).split(' ')[0]} close)` : full ? "Q3 '26" : `Q3 '26 to date (${ms.map((m) => fmt.month(m).split(' ')[0]).join('–')})`;
+      const groups = ms.map((m) => ({ label: fmt.month(m).replace(' ', " '"), cols: ['Actual', 'Budget', 'Variance'] })).concat([{ label: qLabel, cols: ['Actual', 'Budget', 'Variance'] }]);
+      const val = (r, m, b) => r.vals[m + '|' + b];
+      const agg = (r, b) => { const xs = ms.map((m) => val(r, m, b)).filter((v) => v != null); if (!xs.length) return null;
+        const k = qAgg(st, r.line); return k === 'last' ? xs[xs.length - 1] : k === 'first' ? xs[0] : d3.sum(xs); };
+      const byLine = new Map(R.map((r) => [r.line, r]));
+      const grid = [], table = [];
+      R.forEach((r) => {
+        if (r.style === 'band') { grid.push({ band: r.line }); return; }
+        const trip = (a, b) => (r.style === 'pct' ? [{ t: pf(a) }, { t: pf(b) }, { t: ptf(a - b), tone: finTone('up', a - b) }]
+          : [{ t: zf(a) }, { t: zf(b) }, { t: zf(a - b), tone: finTone(r.better, a - b) }]);
+        let cells = [{ t: r.line }];
+        const out = [r.line];
+        ms.forEach((m) => { const a = val(r, m, 'actual'), b = val(r, m, 'budget'), c = trip(a, b); c[0].first = true; cells = cells.concat(c); out.push(...c.map((x) => x.t)); });
+        let qa, qb;
+        if (r.style === 'pct' && r.ratio) { const [n, dn] = r.ratio.split('/').map((x) => byLine.get(x)); qa = agg(n, 'actual') / agg(dn, 'actual'); qb = agg(n, 'budget') / agg(dn, 'budget'); }
+        else { qa = agg(r, 'actual'); qb = agg(r, 'budget'); }
+        const qc = trip(qa, qb); qc[0].first = true; cells = cells.concat(qc); out.push(...qc.map((x) => x.t));
+        grid.push({ style: r.style, cells }); table.push(out);
+      });
+      stmtGrid(el, groups, grid, opt);
+      return { columns: ['Driver'].concat(...groups.map((g) => g.cols.map((c) => `${g.label} ${c}`))), rows: table };
+    },
+    note() {
+      const F = ST(); if (!F) return '';
+      const R = F.rowsOf('q', 'summary'), g = (n) => R.find((r) => r.line === n);
+      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
+      const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance'), last = ms[ms.length - 1];
+      const pend = ms.length < 3 ? ' September joins once its books close.' : '';
+      return `Actual against the 2026 budget; variance is actual minus budget, green favorable and red unfavorable. Switch statements above the table; Copy image copies the one showing. Quarter to date, revenue is ${fmt.usd(s(rev, 'actual'))} against ${fmt.usd(s(rev, 'budget'))} budgeted and EBITDA ${fmt.usd(s(eb, 'actual'))} against ${fmt.usd(s(eb, 'budget'))}; cash closed ${fmt.monthLong(last).split(' ')[0]} at ${fmt.usd(cash.vals[last + '|actual'])} against ${fmt.usd(cash.vals[last + '|budget'])} in the budget.${pend}`;
+    },
+  };
+
+  CARDS['c-fin-ytd'] = {
+    kind: 'finytd', src: ['fin_statements'], data: () => ['fin_statements'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      const F = stOf(d.fin_statements); if (!F) return null;
+      const R = F.rowsOf('ytd', 'ytd'), ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`);
+      const A = ms.filter((m) => m <= F.close), U = ms.filter((m) => m > F.close);
+      const lab = (m) => fmt.month(m).replace(' ', " '");
+      const groups = [{ label: `Actual (last close ${fmt.month(F.close).split(' ')[0]})`, cols: A.map(lab) }].concat(U.length ? [{ label: 'Upside case forecast', cols: U.map(lab) }] : []);
+      const grid = [], table = [];
+      R.forEach((r) => {
+        if (r.style === 'band') { grid.push({ band: r.line }); return; }
+        const cells = [{ t: r.line }].concat(ms.map((m, i) => { const v = r.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')]; return { t: r.style === 'pct' ? pf(v) : zf(v), first: i === A.length, tone: !(r.style === 'pct') && v != null && v < -0.5 && /Closing Balance/.test(r.line) ? 'bad' : null }; }));
+        grid.push({ style: r.style, cells }); table.push(cells.map((c) => c.t));
+      });
+      stmtGrid(el, groups, grid, opt);
+      return { columns: ['Driver'].concat(ms.map((m) => `${fmt.month(m)} (${m <= F.close ? 'actual' : 'Upside'})`)), rows: table };
+    },
+    note() {
+      const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), g = (n) => R.find((r) => r.line === n);
+      const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance');
+      const neg = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`).find((m) => m > F.close && cash.vals[m + '|upside'] < 0);
+      return `Actuals through ${fmt.monthLong(F.close)}, then the current Upside case. December: revenue ${fmt.usd(rev.vals['2026-12|upside'])}, EBITDA ${fmt.usd(eb.vals['2026-12|upside'])}, closing cash ${fmt.usd(cash.vals['2026-12|upside'])}.${neg ? ` Cash goes below zero in ${fmt.monthLong(neg)} in this case, before any new financing.` : ''}`;
+    },
+  };
+
   CARDS['c-mqlchannels'] = {
     kind: 'close', src: ['mqls', 'kpi'], data: () => [id('mqls'), 'kpi'],
     draw(el, opt) {
@@ -1434,6 +1577,16 @@
       return `${won.length} of the ${r.length} July deck deals won, ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV`; },
     'c-fin-path': () => { const f = FIN(); if (!f) return ''; const A = f.months.filter((m) => m.revenue != null), l = A[A.length - 1], dec = f.months[f.months.length - 1];
       return `EBITDA ${fmt.usd(l.ebitda)} in ${fmt.monthLong(l.month).split(' ')[0]}; the ${f.fcase} case reaches ${fmt.usd(dec.upside_ebitda)} by December against ${fmt.usd(dec.budget_ebitda)} in the budget`; },
+    'c-fin-q': () => { const F = ST(); if (!F) return ''; const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), last = ms[ms.length - 1], to = ms.length < 3 ? ' to date' : '';
+      const R = F.rowsOf('q', state.stmt), g = (n) => R.find((r) => r.line === n), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
+      const gap = (a, b, up) => `${fmt.usd(Math.abs(a - b))} ${(up ? a >= b : a <= b) ? 'ahead of' : 'behind'} budget`;
+      if (state.stmt === 'bs') { const c = g('Cash & Equivalents'), a = c.vals[last + '|actual'], b = c.vals[last + '|budget']; return `Cash ${fmt.usd(a)} at the end of ${fmt.monthLong(last).split(' ')[0]}, ${fmt.usd(b - a)} below budget`; }
+      if (state.stmt === 'cf') { const c = g('Cash Flow from Operating Activities'); return `Q3${to} operating cash flow ${fmt.usd(s(c, 'actual'))}, ${gap(s(c, 'actual'), s(c, 'budget'), true)}`; }
+      if (state.stmt === 'pl') { const c = g('Net Income'); return `Q3${to} net income ${fmt.usd(s(c, 'actual'))}, ${gap(s(c, 'actual'), s(c, 'budget'), true)}`; }
+      const e = g('EBITDA'); return `Q3${to} EBITDA ${fmt.usd(s(e, 'actual'))}, ${gap(s(e, 'actual'), s(e, 'budget'), true)}`; },
+    'c-fin-ytd': () => { const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), rv = R.find((r) => r.line === 'Total Revenue');
+      const ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`), tot = d3.sum(ms, (m) => rv.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')] || 0);
+      return `2026 revenue comes to ${fmt.usd(tot)} in the Upside case, with actuals through ${fmt.monthLong(F.close).split(' ')[0]}`; },
     'c-fin-rev': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'revenue' && x.line === 'Total Revenue'); const v = t.ytd_actual - t.ytd_budget;
       return `Revenue ${fmt.usd(t.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} (${d3.format('.1%')(Math.abs(v) / t.ytd_budget)}) ${v < 0 ? 'under' : 'over'} budget`; },
     'c-fin-exp': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'expenses' && x.line.startsWith('Total')); const v = t.ytd_actual - t.ytd_budget;
@@ -1735,6 +1888,8 @@
     if (kind === 'trend') { const k = (raw('kpi') || []).map((r) => r.month).filter(TREND); return `Monthly, ${fmt.monthLong(k[0] || s.win)} to ${fmt.monthLong(k[k.length - 1] || s.win)} · highlighted: ${WIN_LABEL[s.win]}`; }
     if (kind === 'plan' || kind === 'planlive') { const T = rows(id('plan_targets')), m = planMonth();
       return `${T ? caseOf(T) : 'Selected'} case targets, October 2026 to March 2027 · ${paceOf(m) ? fmt.monthLong(m) + ' to date' : fmt.monthLong(m)}${kind === 'planlive' ? (state.data === 'frozen' ? ' · pipeline as of the board snapshot' : ' · pipeline live') : ''}`; }
+    if (kind === 'finq') { const F = ST(); return F ? `${STMT[state.stmt]} · actual vs 2026 budget · last closed month ${fmt.monthLong(F.close)}` : ''; }
+    if (kind === 'finytd') { const F = ST(); return F ? `Actuals through ${fmt.monthLong(F.close)}, then the Upside case` : ''; }
     if (kind === 'finpath') { const f = FIN(); return f ? `Actuals through ${fmt.monthLong(f.close_month)}, then the ${f.fcase} case · (B) 2026 budget` : ''; }
     if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
     if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
@@ -1754,7 +1909,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;
