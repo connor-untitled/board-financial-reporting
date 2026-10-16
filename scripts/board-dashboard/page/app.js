@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -1685,20 +1685,20 @@
   };
 
   CARDS['c-plan-trend'] = {
-    kind: 'plan', src: ['plan_targets', 'bookings'], data: () => [id('plan_targets'), 'plan_actuals'],
+    kind: 'plan', src: ['plan_targets', 'bookings'], data: () => [id('plan_targets'), 'plan_targets_base', 'plan_actuals'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const T = d[id('plan_targets')], A = d.plan_actuals, cs = caseOf(T), ms = PLAN_HIST.concat(PLAN_M);
+      const T = d[id('plan_targets')], TB = d.plan_targets_base, A = d.plan_actuals, cs = caseOf(T), ms = PLAN_HIST.concat(PLAN_M);
       const SR = [{ key: 'Direct', label: 'New customers, Direct', color: B.peri }, { key: 'Reseller', label: 'New customers, Reseller', color: B.sky },
         { key: 'Existing', label: 'Existing customers (upsells, reactivations)', color: B.mint }];
       const data = ms.map((m) => { const p = paceOf(m), dr = actOf(A, m, 'Direct'), rr = actOf(A, m, 'Reseller'), tr = actOf(A, m, 'Total');
         const r = { month: m, Direct: dr ? dr.new_mrr : 0, Reseller: rr ? rr.new_mrr : 0, Existing: tr ? tr.existing_mrr : 0, has: m <= S().today.slice(0, 7), target: tgt(T, m, 'Total', 'all_new_mrr'),
           tNew: tgt(T, m, 'Total', 'new_mrr'), tExp: tgt(T, m, 'Total', 'expansion') };
-        r.total = r.Direct + r.Reseller + r.Existing; r.pace = p ? r.total * p.f : null; return r; });
-      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target (new customers plus expansion)`], [B.muted, 'Pace for the open month']]));
+        r.base = tgt(TB, m, 'Total', 'all_new_mrr'); r.total = r.Direct + r.Reseller + r.Existing; r.pace = p ? r.total * p.f : null; return r; });
+      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target (new customers plus expansion)`], [B.prior, 'Base target (dashed)'], [B.muted, 'Pace for the open month']]));
       const { w, h } = size(el, opt, (opt && opt.height) || 300);
       const svg = svgFor(el, w, h);
-      const max = d3.max(data, (r) => Math.max(r.total, r.pace || 0, r.target || 0)) || 1;
+      const max = d3.max(data, (r) => Math.max(r.total, r.pace || 0, r.target || 0, r.base || 0)) || 1;
       const y = d3.scaleLinear([0, max * 1.15], [h - 28, 16]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usdS(t)));
       const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.28), bw = x.bandwidth();
@@ -1710,23 +1710,24 @@
         if (r.pace != null && r.pace > acc) svg.append('rect').attr('x', x(r.month) + 0.5).attr('width', bw - 1).attr('y', y(r.pace)).attr('height', Math.max(0, y(acc) - y(r.pace))).attr('fill', 'none').attr('stroke', B.muted).attr('stroke-dasharray', '4 3');
         const top = Math.max(acc, r.pace || 0);
         if (acc) svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', y(top) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(r.pace != null ? `${fmt.usdS(acc)} → ${fmt.usdS(r.pace)}` : fmt.usdS(acc));
+        if (r.base != null) svg.append('line').attr('x1', x(r.month) - 4).attr('x2', x(r.month) + bw + 4).attr('y1', y(r.base)).attr('y2', y(r.base)).attr('stroke', B.prior).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3');
         if (r.target != null) svg.append('line').attr('x1', x(r.month) - 4).attr('x2', x(r.month) + bw + 4).attr('y1', y(r.target)).attr('y2', y(r.target)).attr('stroke', B.amber).attr('stroke-width', 2.5).attr('stroke-linecap', 'round');
         svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(r.month) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(r.month));
         svg.append('rect').attr('x', x(r.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
           .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(r.month), SR.map((s) => [s.color, s.label, fmt.usdFull(r[s.key])]).concat([[null, 'All new MRR', fmt.usdFull(r.total)]])
-            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, `${fmt.usdFull(r.target)} (${fmt.usdFull(r.tNew)} new, ${fmt.usdFull(r.tExp || 0)} expansion)`]] : [[null, 'Before the plan', '']])))
+            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, `${fmt.usdFull(r.target)} (${fmt.usdFull(r.tNew)} new, ${fmt.usdFull(r.tExp || 0)} expansion)`], [B.prior, 'Base target', fmt.usdFull(r.base)]] : [[null, 'Before the plan', '']])))
           .on('mouseleave', () => tip.hide());
       });
-      return { columns: ['Month', 'New customers, Direct', 'New customers, Reseller', 'Existing customers', 'All new MRR', 'Full-month pace', `${cs} target`, 'Target: new customers', 'Target: expansion'],
+      return { columns: ['Month', 'New customers, Direct', 'New customers, Reseller', 'Existing customers', 'All new MRR', 'Full-month pace', `${cs} target`, 'Target: new customers', 'Target: expansion', 'Base target'],
         rows: data.map((r) => [fmt.monthLong(r.month), r.has ? fmt.usdFull(r.Direct) : '', r.has ? fmt.usdFull(r.Reseller) : '', r.has ? fmt.usdFull(r.Existing) : '', r.has ? fmt.usdFull(r.total) : '', r.pace != null ? fmt.usdFull(r.pace) : '',
-          r.target != null ? fmt.usdFull(r.target) : '', r.tNew != null ? fmt.usdFull(r.tNew) : '', r.tExp != null ? fmt.usdFull(r.tExp) : '']) };
+          r.target != null ? fmt.usdFull(r.target) : '', r.tNew != null ? fmt.usdFull(r.tNew) : '', r.tExp != null ? fmt.usdFull(r.tExp) : '', r.base != null ? fmt.usdFull(r.base) : '']) };
     },
     note() {
-      const T = rows(id('plan_targets')), A = rows('plan_actuals'); if (!T || !A) return '';
-      const a = tgt(T, PLAN_M[0], 'Total', 'all_new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'all_new_mrr');
+      const T = rows(id('plan_targets')), TB = rows('plan_targets_base'), A = rows('plan_actuals'); if (!T || !A || !TB) return '';
+      const a = tgt(T, PLAN_M[0], 'Total', 'all_new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'all_new_mrr'), zb = tgt(TB, PLAN_M[5], 'Total', 'all_new_mrr');
       const m = planMonth(), p = paceOf(m), r = actOf(A, m, 'Total');
       const now = r && p ? ` ${fmt.monthLong(m)} so far: ${fmt.usd(r.all_new_mrr)}, pacing to ${fmt.usd(r.all_new_mrr * p.f)} against ${fmt.usd(tgt(T, m, 'Total', 'all_new_mrr'))}.` : '';
-      return `All MRR signed in the Wins tab, new and existing customers. The ${caseOf(T)} case target (new-customer MRR plus expansion MRR) rises from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March.${now}`;
+      return `All MRR signed in the Wins tab, new and existing customers. The ${caseOf(T)} case target (new-customer MRR plus expansion MRR) rises from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March (Base: ${fmt.usd(zb)}).${now}`;
     },
   };
 
@@ -1857,6 +1858,8 @@
       svg.append('text').attr('x', x0 + 6).attr('y', 14).attr('class', 'ub-tick').text(o.lightLabel);
     }
     const tip = tooltip(el), every = Math.ceil(cols.length / Math.max(1, Math.floor((w - left) / 64)));
+    (o.overlay || []).forEach((v) => { if (x(v.month) == null) return;
+      svg.append('line').attr('x1', x(v.month) - 6).attr('x2', x(v.month) + bw + 6).attr('y1', y(v.value)).attr('y2', y(v.value)).attr('stroke', o.overlayColor || B.amber).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3'); });
     cols.forEach((c, i) => {
       const op = c.light ? 0.72 : 1;
       // Inflows climb from the opening balance (left half); outflows fall from that peak to the ending balance (right half).
@@ -1876,7 +1879,8 @@
       svg.append('rect').attr('x', x(c.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
         .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(c.month) + (c.light && o.lightTip ? ' · ' + o.lightTip : ''), [[null, 'Opening', fmt.usdFull(c.open)]]
           .concat(keys.filter((k) => c[k.key] && !/^adj/.test(k.key)).map((k) => [k.color, k.label, (k.dir < 0 ? '−' : '+') + fmt.usdFull(Math.abs(c[k.key])).replace('−', '')]))
-          .concat(c.adjust ? [[B.prior, c.adjustLabel || 'Adjustment', fmt.signedUsd(c.adjust)]] : []).concat([[B.fg, 'Ending', fmt.usdFull(c.end)]])))
+          .concat(c.adjust ? [[B.prior, c.adjustLabel || 'Adjustment', fmt.signedUsd(c.adjust)]] : []).concat([[B.fg, 'Ending', fmt.usdFull(c.end)]])
+          .concat((o.overlay || []).filter((v) => v.month === c.month).map((v) => [o.overlayColor || B.amber, v.label, fmt.usdFull(v.value)]))))
         .on('mouseleave', () => tip.hide());
     });
   }
@@ -1887,36 +1891,43 @@
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       $$('.ub-seg-wfch button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.wfch));
-      const R = d.mrr_waterfall.filter((r) => r.channel === WF_CH[state.wfch]);
+      $$('.ub-seg-wfcase button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.wfcase));
+      const cs = state.wfcase, other = cs === 'Upside' ? 'Base' : 'Upside', bas = (c) => c.toLowerCase();
+      const all = d.mrr_waterfall.filter((r) => r.channel === WF_CH[state.wfch]), R = all.filter((r) => r.basis === 'actual' || r.basis === bas(cs));
+      const overlay = all.filter((r) => r.basis === bas(other)).map((r) => ({ month: r.month, value: +r.ending, label: `${other} case ending` }));
       const keys = [{ key: 'losses', label: 'Churn and contraction', color: B.bad, dir: -1 }, { key: 'adjDown', label: 'Rebase or model baseline', color: B.prior, dir: -1 },
         { key: 'new_pipeline', label: 'New customers', color: B.peri, dir: 1 }, { key: 'new_named', label: 'Named Upside deals (Liberty)', color: B.deep, dir: 1 },
         { key: 'expansion', label: 'Expansion and reactivation', color: B.mint, dir: 1 }, { key: 'expansion_named', label: 'Named expansion (L2T, reseller accounts)', color: B.sky, dir: 1 },
         { key: 'adjUp', label: 'Rebase or model baseline', color: B.prior, dir: 1 }];
       const cols = R.map((r) => ({ month: r.month, open: +r.opening, end: +r.ending, losses: +r.losses, new_pipeline: +r.new_pipeline, new_named: +r.new_named, expansion: +r.expansion,
         expansion_named: +r.expansion_named, adjDown: Math.max(0, -r.adjustment), adjUp: Math.max(0, +r.adjustment), adjust: +r.adjustment, adjustLabel: r.adjustment_label, light: r.basis !== 'actual' }));
-      wfColumns(el, opt, cols, keys, { lightLabel: 'Upside case', lightTip: 'Upside case', legend: [[B.fg, 'Ending MRR']], zero: false });
-      return { columns: ['Month', 'Basis', 'Opening MRR', 'New customers', 'Named Upside deals', 'Expansion and reactivation', 'Named expansion', 'Churn and contraction', 'Rebase or baseline', 'Ending MRR'],
-        rows: R.map((r) => [fmt.monthLong(r.month), r.basis === 'actual' ? 'Actual' : 'Upside case', fmt.usdFull(r.opening), fmt.usdFull(r.new_pipeline), fmt.usdFull(r.new_named), fmt.usdFull(r.expansion),
-          fmt.usdFull(r.expansion_named), '−' + fmt.usdFull(r.losses), r.adjustment ? fmt.signedUsd(r.adjustment) : '', fmt.usdFull(r.ending)]) };
+      wfColumns(el, opt, cols, cs === 'Base' ? keys.filter((k) => !/named/.test(k.key)) : keys, { lightLabel: `${cs} case`, lightTip: `${cs} case`, legend: [[B.fg, `Ending MRR, ${cs} case`], [B.amber, `Ending MRR, ${other} case (dashed)`]], zero: false, overlay });
+      const oe = (m) => { const v = pick(overlay, (q) => q.month === m); return v ? fmt.usdFull(v.value) : ''; };
+      return { columns: ['Month', 'Basis', 'Opening MRR', 'New customers', 'Named Upside deals', 'Expansion and reactivation', 'Named expansion', 'Churn and contraction', 'Rebase or baseline', 'Ending MRR', `Ending MRR, ${other} case`],
+        rows: R.map((r) => [fmt.monthLong(r.month), r.basis === 'actual' ? 'Actual' : `${cs} case`, fmt.usdFull(r.opening), fmt.usdFull(r.new_pipeline), fmt.usdFull(r.new_named), fmt.usdFull(r.expansion),
+          fmt.usdFull(r.expansion_named), '−' + fmt.usdFull(r.losses), r.adjustment ? fmt.signedUsd(r.adjustment) : '', fmt.usdFull(r.ending), oe(r.month)]) };
     },
     note() {
       const R = rows('mrr_waterfall'); if (!R) return '';
-      const r = R.filter((x) => x.channel === WF_CH[state.wfch]), a = pick(r, (x) => x.month === '2026-09'), z = pick(r, (x) => x.month === '2027-03'), pl = r.filter((x) => x.basis !== 'actual');
-      if (!a || !z) return '';
-      const named = d3.sum(pl, (x) => +x.new_named + +x.expansion_named), nw = d3.sum(pl, (x) => +x.new_pipeline), ls = d3.sum(pl, (x) => +x.losses);
-      return `${state.wfch === 'Total' ? 'Subscription' : state.wfch} MRR goes from ${fmt.usd(a.ending)} in September to ${fmt.usd(z.ending)} in March in the Upside case: ${fmt.usd(nw)} of new-customer MRR from pipeline and ${fmt.usd(named)} from the named Upside deals, against ${fmt.usd(ls)} of churn and contraction allowed. October opens at the model's September baseline (${fmt.signedUsd(+pick(r, (x) => x.month === '2026-10').adjustment)} against the KPI sheet).`;
+      const r = R.filter((x) => x.channel === WF_CH[state.wfch]), a = pick(r, (x) => x.month === '2026-09');
+      const z = (b) => pick(r, (x) => x.month === '2027-03' && x.basis === b), pl = (b) => r.filter((x) => x.basis === b);
+      if (!a || !z('upside') || !z('base')) return '';
+      const named = d3.sum(pl('upside'), (x) => +x.new_named + +x.expansion_named), nw = (b) => d3.sum(pl(b), (x) => +x.new_pipeline);
+      return `${state.wfch === 'Total' ? 'Subscription' : state.wfch} MRR goes from ${fmt.usd(a.ending)} in September to ${fmt.usd(z('base').ending)} in March in the Base case and ${fmt.usd(z('upside').ending)} in the Upside case. The gap is the named Upside deals (${fmt.usd(named)} of MRR by March); both cases need about the same new-customer MRR from pipeline (${fmt.usd(nw('base'))} Base, ${fmt.usd(nw('upside'))} Upside, which replaces churn on a larger base). October opens at the model's September baseline (${fmt.signedUsd(+pick(r, (x) => x.month === '2026-10').adjustment)} against the KPI sheet).`;
     },
   };
 
   const PW_BLOCK = { Total: null, New: ['Direct', 'Reseller', 'Not yet tagged'], Direct: ['Direct'], Reseller: ['Reseller'], Expansion: ['Expansion'] };
   const pwRows = (P) => { const want = PW_BLOCK[state.pwblock], F = ['beginning', 'created', 'moved_in', 'increase', 'decrease', 'won', 'lost', 'ending', 'created_deals', 'won_deals', 'lost_deals'];
     return d3.groups(P.filter((r) => !want || want.includes(r.block)), (r) => r.month).map(([m, rs]) => { const o = { month: m }; F.forEach((f) => { o[f] = d3.sum(rs, (r) => +r[f]); }); return o; }).sort((a, z) => d3.ascending(a.month, z.month)); };
+  // The months of the date range that the history covers; a range with none falls back to the last three months it holds.
+  const pwSel = (R) => { const ms = selMonths(), r = R.filter((x) => ms.includes(x.month)); return r.length ? r : R.slice(-3); };
   CARDS['c-pipewf'] = {
     kind: 'pipewf', src: ['pipeline_waterfall'], data: () => ['pipeline_waterfall'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       $$('.ub-seg-pwblock button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.pwblock));
-      const R = pwRows(d.pipeline_waterfall);
+      const R = pwSel(pwRows(d.pipeline_waterfall));
       const keys = [{ key: 'won', label: 'Won', color: B.good, dir: -1 }, { key: 'lost', label: 'Lost', color: B.bad, dir: -1 }, { key: 'decrease', label: 'Value lowered', color: B.prior, dir: -1 },
         { key: 'created', label: 'Created', color: B.peri, dir: 1 }, { key: 'moved_in', label: 'Reopened or moved in', color: B.lav, dir: 1 }, { key: 'increase', label: 'Value raised', color: B.sky, dir: 1 }];
       wfColumns(el, opt, R.map((r) => ({ ...r, open: r.beginning, end: r.ending })), keys, { legend: [[B.fg, 'Open pipeline at month end']] });
@@ -1925,52 +1936,56 @@
     },
     note() {
       const P = rows('pipeline_waterfall'); if (!P) return '';
-      const R = pwRows(P), q = R.filter((r) => r.month >= '2026-07'), z = R[R.length - 1], j = pick(R, (r) => r.month === '2026-06');
-      if (!z || !j) return '';
-      return `Q3 2026: ${fmt.usd(d3.sum(q, (r) => r.created))} created, ${fmt.usd(d3.sum(q, (r) => r.won))} won and ${fmt.usd(d3.sum(q, (r) => r.lost))} lost; open pipeline ${fmt.usd(j.ending)} at the end of June and ${fmt.usd(z.ending)} at the end of September. Values are HubSpot deal amounts (contract value).`;
+      const q = pwSel(pwRows(P)), a = q[0], z = q[q.length - 1];
+      if (!a || !z) return '';
+      const per = q.length > 1 ? `${fmt.monthLong(a.month)} to ${fmt.monthLong(z.month)}` : fmt.monthLong(a.month);
+      return `${per}: ${fmt.usd(d3.sum(q, (r) => r.created))} created, ${fmt.usd(d3.sum(q, (r) => r.won))} won and ${fmt.usd(d3.sum(q, (r) => r.lost))} lost; open pipeline went from ${fmt.usd(a.beginning)} to ${fmt.usd(z.ending)}. Values are HubSpot deal amounts (contract value).`;
     },
   };
 
   CARDS['c-plan-pipeneed'] = {
-    kind: 'pipeneed', src: ['pipeline_needed', 'plan_targets', 'opps_channel'], data: () => ['pipeline_needed', id('opps_channel')],
+    kind: 'pipeneed', src: ['pipeline_needed', 'plan_targets', 'opps_channel'], data: () => ['pipeline_needed'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const N = d.pipeline_needed, O = d[id('opps_channel')], ms = ['2026-08', '2026-09'].concat(PLAN_M), CHS = [['Direct', B.peri], ['Reseller', B.sky]];
-      const need1 = (m, ch) => pick(N, (r) => r.kind === 'month' && r.month === m && r.channel === ch), basis = (ch) => pick(N, (r) => r.kind === 'basis' && r.channel === ch);
-      const act = (m, ch) => (m <= '2026-10' ? d3.sum(O.filter((r) => r.month === m && r.block === ch), (r) => +r.created) : null);
-      legend(el, [[B.peri, 'Direct: opportunities to create'], [B.sky, 'Reseller: opportunities to create'], [B.fg, 'Created (actual, October to date)']]);
+      const N = d.pipeline_needed, ms = ['2026-08', '2026-09'].concat(PLAN_M), b = pick(N, (r) => r.kind === 'basis');
+      const nd = (cs, m) => pick(N, (r) => r.kind === 'month' && r.case === cs && r.month === m), ac = (m) => pick(N, (r) => r.kind === 'actual' && r.month === m);
+      legend(el, [[B.peri, 'Upside: opportunities to create'], [B.amber, 'Base: opportunities to create (dashed)'], [B.fg, 'Created (actual; October to date)']]);
       const { w, h } = size(el, opt, (opt && opt.height) || 280), svg = svgFor(el, w, h);
-      const max = d3.max(ms, (m) => d3.max(CHS, ([ch]) => Math.max((need1(m, ch) || {}).created_needed || 0, act(m, ch) || 0))) || 1;
+      const max = d3.max(ms, (m) => Math.max((nd('Upside', m) || {}).created_needed || 0, (ac(m) || {}).created_actual || 0)) || 1;
       const y = d3.scaleLinear([0, max * 1.15], [h - 28, 12]).nice(), left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.n(t)));
-      const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.22), x1 = d3.scaleBand(CHS.map((c) => c[0]), [0, x.bandwidth()]).padding(0.12);
+      const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.3), bw = x.bandwidth();
       yAxis(svg, y, left, w - 4, fmt.n);
       const tip = tooltip(el);
       ms.forEach((m) => {
-        CHS.forEach(([ch, col]) => {
-          const n = need1(m, ch), a = act(m, ch), bx = x(m) + x1(ch);
-          if (n) { svg.append('rect').attr('x', bx).attr('width', x1.bandwidth()).attr('y', y(n.created_needed)).attr('height', y(0) - y(n.created_needed)).attr('fill', col).attr('opacity', 0.85);
-            svg.append('text').attr('x', bx + x1.bandwidth() / 2).attr('y', y(n.created_needed) - 4).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(Math.ceil(n.created_needed))); }
-          if (a != null) { svg.append('line').attr('x1', bx - 2).attr('x2', bx + x1.bandwidth() + 2).attr('y1', y(a)).attr('y2', y(a)).attr('stroke', B.fg).attr('stroke-width', 2.5);
-            if (!n) svg.append('text').attr('x', bx + x1.bandwidth() / 2).attr('y', y(a) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(a)); }
-        });
-        svg.append('text').attr('x', x(m) + x.bandwidth() / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(m) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(m));
+        const u = nd('Upside', m), bs = nd('Base', m), a = ac(m);
+        if (u) { svg.append('rect').attr('x', x(m)).attr('width', bw).attr('y', y(u.created_needed)).attr('height', y(0) - y(u.created_needed)).attr('fill', B.peri).attr('opacity', 0.85);
+          svg.append('text').attr('x', x(m) + bw / 2).attr('y', y(Math.max(u.created_needed, bs ? bs.created_needed : 0)) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(Math.ceil(u.created_needed))); }
+        if (bs) svg.append('line').attr('x1', x(m) - 4).attr('x2', x(m) + bw + 4).attr('y1', y(bs.created_needed)).attr('y2', y(bs.created_needed)).attr('stroke', B.amber).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3');
+        if (a) { svg.append('line').attr('x1', x(m) - 4).attr('x2', x(m) + bw + 4).attr('y1', y(a.created_actual)).attr('y2', y(a.created_actual)).attr('stroke', B.fg).attr('stroke-width', 2.5);
+          if (!u) svg.append('text').attr('x', x(m) + bw / 2).attr('y', y(a.created_actual) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(a.created_actual)); }
+        svg.append('text').attr('x', x(m) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(m) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(m));
         svg.append('rect').attr('x', x(m) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
-          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(m), CHS.flatMap(([ch, col]) => { const n = need1(m, ch), a = act(m, ch);
-            return (n ? [[col, `${ch}: to create`, `${fmt.n(Math.ceil(n.created_needed))} (${fmt.usd(n.created_value_needed)})`], [col, `${ch}: wins from pipeline`, fmt.n(n.pipeline_wins)]] : []).concat(a != null ? [[B.fg, `${ch}: created`, fmt.n(a) + (m === '2026-10' ? ' to date' : '')]] : []); })))
+          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(m), [].concat(u ? [[B.peri, 'Upside: to create', `${fmt.n(Math.ceil(u.created_needed))} (${fmt.usd(u.created_value_needed)})`], [B.peri, 'Upside: wins from pipeline', fmt.n(u.pipeline_wins)]] : [])
+            .concat(bs ? [[B.amber, 'Base: to create', `${fmt.n(Math.ceil(bs.created_needed))} (${fmt.usd(bs.created_value_needed)})`], [B.amber, 'Base: wins from pipeline', fmt.n(bs.pipeline_wins)]] : [])
+            .concat(a ? [[B.fg, 'Created', fmt.n(a.created_actual) + (a.to_date ? ' to date' : '')], [B.fg, 'Won', fmt.n(a.won_actual) + (a.to_date ? ' to date' : '')]] : [])))
           .on('mouseleave', () => tip.hide());
       });
-      const head = ['Month', 'Channel', 'New-customer MRR from pipeline', 'Named deals', 'Wins from pipeline', 'Deals to close', 'Opportunities to create', 'Pipeline value to create', 'Created'];
-      const body2 = PLAN_M.flatMap((m) => CHS.map(([ch]) => { const n = need1(m, ch), a = act(m, ch);
-        return [fmt.monthLong(m), ch, fmt.usdFull(n.pipeline_new_mrr), n.named_wins ? `${n.named_wins} (${fmt.usd(n.named_new_mrr)})` : '', fmt.n(n.pipeline_wins), fmt.n(Math.ceil(n.deals_to_close)), fmt.n(Math.ceil(n.created_needed)), fmt.usdFull(n.created_value_needed), a == null ? '' : fmt.n(a) + (m === '2026-10' ? ' to date' : '')]; }));
-      CHS.forEach(([ch]) => { const b = basis(ch); body2.push(['Basis', ch, `Win rate ${fmt.rate(b.win_rate)} (${b.won} won, ${b.lost} lost since Aug 1)`, '', `Median ${Math.round(b.cycle_days)} days to close`, '', `${fmt.rate(b.prior_month_share)} created the month before`, `${fmt.usd(b.avg_created_value)} per opportunity`, `${fmt.n(b.open_deals)} open, ${fmt.usd(b.open_value)}`]); });
-      if (!opt || !opt.export) htmlTable(el, head, body2, (r) => r[0] === 'Basis');
+      const head = ['Month', 'New-customer MRR from pipeline (Upside)', 'Named deals', 'Wins from pipeline (Upside)', 'Opportunities to create (Upside)', 'Pipeline value to create (Upside)', 'Wins from pipeline (Base)', 'Opportunities to create (Base)', 'Pipeline value to create (Base)', 'Created'];
+      const body2 = PLAN_M.map((m) => { const u = nd('Upside', m), bs = nd('Base', m), a = ac(m);
+        return [fmt.monthLong(m), fmt.usdFull(u.pipeline_new_mrr), u.named_wins ? `${u.named_wins} (${fmt.usd(u.named_new_mrr)})` : '', fmt.n(u.pipeline_wins), fmt.n(Math.ceil(u.created_needed)), fmt.usdFull(u.created_value_needed),
+          fmt.n(bs.pipeline_wins), fmt.n(Math.ceil(bs.created_needed)), fmt.usdFull(bs.created_value_needed), a ? fmt.n(a.created_actual) + (a.to_date ? ' to date' : '') : '']; });
+      const tot = (cs, f) => d3.sum(PLAN_M, (m) => nd(cs, m)[f]);
+      body2.push(['Total', '', '', fmt.n(tot('Upside', 'pipeline_wins')), fmt.n(Math.ceil(tot('Upside', 'created_needed'))), fmt.usdFull(tot('Upside', 'created_value_needed')), fmt.n(tot('Base', 'pipeline_wins')), fmt.n(Math.ceil(tot('Base', 'created_needed'))), fmt.usdFull(tot('Base', 'created_value_needed')), '']);
+      body2.push(['Basis', `Win rate ${fmt.rate(b.win_rate)} (${b.won} won, ${b.lost} lost since Aug 1)`, '', `Median ${Math.round(b.cycle_days)} days to close`, `${fmt.rate(b.prior_month_share)} created the month before`, `${fmt.usd(b.avg_created_value)} average opportunity`, `${fmt.usd(b.avg_won_value)} average won deal`, '', `${fmt.n(b.open_deals)} open, ${fmt.usd(b.open_value)}`, '']);
+      if (!opt || !opt.export) htmlTable(el, head, body2, (r) => r[0] === 'Basis' || r[0] === 'Total');
+      { const tw = el.querySelector(':scope > .ub-tablewrap'); if (tw) el.appendChild(tw); }
       return { columns: head, rows: body2 };
     },
     note() {
       const N = rows('pipeline_needed'); if (!N) return '';
-      const s = (ch, f) => d3.sum(N.filter((r) => r.kind === 'month' && r.channel === ch), (r) => +r[f]);
-      const b = (ch) => pick(N, (r) => r.kind === 'basis' && r.channel === ch);
-      return `To land the Upside case's new customers from October to March, Direct needs about ${fmt.n(Math.round(s('Direct', 'created_needed') / 6))} new opportunities a month and Reseller about ${fmt.n(Math.round(s('Reseller', 'created_needed') / 6))}, ${fmt.usd(s('Direct', 'created_value_needed') + s('Reseller', 'created_value_needed'))} of pipeline in total, at the win rates since August 1 (${fmt.rate(b('Direct').win_rate)} and ${fmt.rate(b('Reseller').win_rate)}). Liberty is counted as a named deal, not as pipeline to find.`;
+      const b = pick(N, (r) => r.kind === 'basis'), s = (cs, f) => d3.sum(N.filter((r) => r.kind === 'month' && r.case === cs), (r) => +r[f]);
+      const a = N.filter((r) => r.kind === 'actual' && !r.to_date), avgA = d3.mean(a, (r) => +r.created_actual);
+      return `All new business, both channels: the Upside case needs about ${fmt.n(Math.round(s('Upside', 'created_needed') / 6))} new opportunities a month (${fmt.usd(s('Upside', 'created_value_needed'))} of pipeline over six months) and the Base case about ${fmt.n(Math.round(s('Base', 'created_needed') / 6))} (${fmt.usd(s('Base', 'created_value_needed'))}), against ${fmt.n(Math.round(avgA))} a month created in August and September. That assumes the ${fmt.rate(b.win_rate)} win rate and ${fmt.usd(b.avg_created_value)} average opportunity since August 1. Liberty is a named deal, not pipeline to find.`;
     },
   };
 
@@ -2028,9 +2043,9 @@
     if (kind === 'finytd') { const F = ST(); return F ? `Actuals through ${fmt.monthLong(F.close)}, then the Upside case` : ''; }
     if (kind === 'finpath') { const f = FIN(); return f ? `Actuals through ${fmt.monthLong(f.close_month)}, then the ${f.fcase} case · (B) 2026 budget` : ''; }
     if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
-    if (kind === 'mrrwf') return 'Monthly, April 2026 to March 2027 · actuals through September (KPI sheet), then the Upside case (CFO.ai)';
-    if (kind === 'pipewf') return 'Monthly, January 2025 to September 2026 · rebuilt from HubSpot deal history';
-    if (kind === 'pipeneed') return 'Upside case, October 2026 to March 2027 · conversion since August 1, 2026';
+    if (kind === 'mrrwf') return `Monthly, April 2026 to March 2027 · actuals through September (KPI sheet), then the ${state.wfcase} case (CFO.ai), with the ${state.wfcase === 'Upside' ? 'Base' : 'Upside'} case's ending MRR dashed`;
+    if (kind === 'pipewf') { const P = rows('pipeline_waterfall'); const q = P ? pwSel(pwRows(P)) : []; return q.length ? `Monthly, ${fmt.monthLong(q[0].month)} to ${fmt.monthLong(q[q.length - 1].month)} (closed months in the date range) · rebuilt from HubSpot deal history` : 'Rebuilt from HubSpot deal history'; }
+    if (kind === 'pipeneed') return 'Base and Upside cases, October 2026 to March 2027 · all new business, conversion since August 1, 2026';
     if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
     return '';
   }
@@ -2048,7 +2063,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-pwblock', 'pwblock');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-pwblock', 'pwblock');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;

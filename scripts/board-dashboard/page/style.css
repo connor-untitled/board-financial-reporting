@@ -167,3 +167,6 @@
 #ub .ub-stmt th.ub-stmt-group { text-align: center; border-bottom: 1px solid var(--u-line); }
 #ub .ub-stmt .ub-stmt-first { border-left: 1px solid var(--u-line); }
 #ub .ub-stmt tr.ub-fin-band td { text-align: left; }
+
+.ub-segrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ub-segrow .ub-seg { margin: 0; }

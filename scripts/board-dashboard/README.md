@@ -84,11 +84,16 @@ each named new customer as one win.
 - **Subscription MRR waterfall** (Plan tab, `mrr_waterfall`): KPI-sheet movements April to September, then the Upside case
   from the targets table, with the named deals and named expansion shown apart. October opens at the model's September
   baseline, $100 below the KPI sheet (shown as the baseline step).
-- **Pipeline waterfall by month** (Sales tab, `pipeline_waterfall`, `sql/pipeline_waterfall.sql`): rebuilt from HubSpot's
+- **Base case** (`plan_targets_base`): the Base case has the old Upside inputs with the additions switched off, so its targets
+  are the October 14 read (rechecked October 16) exactly; October matches the Upside read and March differs by the $18,100 of
+  additions. The MRR waterfall switches between cases with the other case's ending MRR dashed, and "All new MRR against the
+  plan" shows the Base target dashed beside the Upside target.
+- **Pipeline waterfall by month** (Sales tab, `pipeline_waterfall`, `sql/pipeline_waterfall.sql`), for the closed months in
+  the date range (the last three if none): rebuilt from HubSpot's
   pipeline, stage and amount history, so every month foots. The KPI sheet's own pipeline movement columns do not foot before
   August 2026 (and September's value decrease equals its lost value), so this view does not use them.
-- **Pipeline creation needed** (Plan tab, `pipeline_needed`): pipeline-sourced wins each month divided by the channel win rate
-  since August 1, with the share created the month before set by the median days to close, and valued at the average
+- **Pipeline creation needed** (Plan tab, `pipeline_needed`), Base and Upside, blended across all new business: pipeline-sourced
+  wins each month (both channels) divided by the blended win rate since August 1, with the share created the month before set by the median days to close, and valued at the average
   opportunity created since August 1. March's following month is assumed equal to March.
 
 ### Board baseline: the July 21, 2026 deck
