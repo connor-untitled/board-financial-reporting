@@ -63,11 +63,42 @@ targets by channel", for the case selected in its Case toggle).
   month and channel) with the open-pipeline query. Win rate is won over won
   plus lost for deals closed since August 1, 2026, when the demo-led motion
   started.
-- **Board snapshot:** `plan_targets_frozen` and `opps_channel_frozen` as of
-  October 14, 2026 (Upside case). Retake both with the other `*_frozen` sets
+- **Board snapshot:** `plan_targets_frozen` (Upside case, re-read October 16, 2026 after the Upside additions) and
+  `opps_channel_frozen` (October 16, 2026). Retake both with the other `*_frozen` sets
   before each board meeting.
 - CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
   following month, so its view of a month lags this tab's.
+
+### Upside additions and the three planning views (October 16, 2026)
+
+After investor feedback, the case that was Upside became Base (6.9% subscription and 4.2% consumption monthly growth), and
+the Upside case adds named deals and reseller account adds on top of that growth. They are inputs on CFO.ai's
+"Upside Additions" page ("Upside additions (inputs)": one row per addition with revenue line, channel, movement, start month
+and monthly amount; reseller accounts read the single `Upside Reseller Account Add MRR` input, $350). "Upside additions by month"
+turns them into monthly amounts, switched on by `Case Includes Upside Additions` (1 for Upside only). The revenue lines stack
+them flat on the growth rate: `(prior month - prior additions) x (1 + growth) + additions`. DSP additions are our 20% take;
+gross billings and the Prospect Desk pass-through follow from `DSP Margin %`. The targets table splits new-customer MRR into
+named (`Target Named Upside New Customer MRR`) and pipeline-sourced (`Target Pipeline-Sourced New Customer MRR`), and counts
+each named new customer as one win.
+
+- **Subscription MRR waterfall** (Plan tab, `mrr_waterfall`): KPI-sheet movements April to September, then the Upside case
+  from the targets table, with the named deals and named expansion shown apart. October opens at the model's September
+  baseline, $100 below the KPI sheet (shown as the baseline step).
+- **Base case** (`plan_targets_base`): the Base case has the old Upside inputs with the additions switched off, so its targets
+  are the October 14 read (rechecked October 16) exactly; October matches the Upside read and March differs by the $18,100 of
+  additions. The MRR waterfall switches between cases with the other case's ending MRR dashed, and "All new MRR against the
+  plan" shows the Base target dashed beside the Upside target.
+- **MRR bridge, all recurring revenue** (Revenue tab, `c-bridge` Scope toggle): Total MRR as on the KPI sheet (subscription and
+  services MRR plus the month's consumption and DSP revenue). Subscription keeps its movements; consumption and DSP are one
+  step each, their net change from the month before the period to its last month, since usage has no contract to expand or
+  cancel. Total only: usage is not split by channel.
+- **Pipeline waterfall by month** (Sales tab, `pipeline_waterfall`, `sql/pipeline_waterfall.sql`), for the closed months in
+  the date range (the last three if none): rebuilt from HubSpot's
+  pipeline, stage and amount history, so every month foots. The KPI sheet's own pipeline movement columns do not foot before
+  August 2026 (and September's value decrease equals its lost value), so this view does not use them.
+- **Pipeline creation needed** (Plan tab, `pipeline_needed`), Base and Upside, blended across all new business: pipeline-sourced
+  wins each month (both channels) divided by the blended win rate since August 1, with the share created the month before set by the median days to close, and valued at the average
+  opportunity created since August 1. March's following month is assumed equal to March.
 
 ### Board baseline: the July 21, 2026 deck
 
@@ -127,6 +158,17 @@ The Financial review tab mirrors the deck's path-to-break-even and budget varian
 - CFO.ai's EBITDA includes other income, so revenue minus expenses does not equal EBITDA exactly.
 - Re-read after each close and update `close_month`. The tab follows whatever close the file holds.
 - The "Against the July 2026 board forecast" card sits on this tab.
+- From the September close, actuals are read from the Cash Forecast Q4'26-Q1'27 scenario: it was closed through September while Main Scenario and Budget 2026 still showed an August last close. Its January to August figures match Main Scenario to the cent. Run `fin_statements/build.py 2026-09` after saving the reads to `.board-dashboard/cfo/sep/`.
+- The July 2026 board forecast card shows actuals and the Upside case only. The model has a case selector, so Base can only be read by switching it, which is a change to CFO.ai.
+
+### Financial statements (quarter vs budget, year to date and forecast)
+
+Two more cards on the Financial review tab cover the deck's financial summary slides from one dataset, `fin_statements` (long-form flat rows).
+
+- **Quarter against budget** switches between Summary, Income statement, Balance sheet and Cash flows. Each closed month of the quarter shows actual, budget and variance, then the quarter: summed for flows, the latest month for balances. Months after the last close are left out until they close, and the quarter column is labelled "to date" until then. Copy image copies the statement showing.
+- **2026 year to date and forecast** is the monthly summary for January to December: actuals through the close, then the current Upside case.
+- Sources, all read only with `inspect_table_blocks`, format `ream`: Main Scenario `Monthly Summary Statement#b30`, `P&L - TTM#17c`, `Balance Sheet - TTM#25e` and `Cash Flows - TTM#30a` with comparison `Budget 2026#218`; Cash Forecast Q4'26-Q1'27 `Monthly Summary — Forecast#2b6` for the Upside months.
+- Save each read's row lines to `.board-dashboard/cfo/` (`sum`, `pl`, `bs`, `cf`, `ytd`), update the column map in `fin_statements/build.py` if the months move, then run it. It refuses to write unless revenue and expense lines sum to their totals, assets equal liabilities and equity, operating cash flow sums, cash reconciles opening to closing and to the balance sheet, and the Upside months match `fin_review`.
 
 ## Date range
 

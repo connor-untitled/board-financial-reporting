@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -360,39 +360,61 @@
     },
   };
 
+  // All recurring revenue: subscription and services MRR plus the month's consumption and DSP revenue (the KPI sheet's total MRR).
+  // Usage has no contract to expand or cancel, so each usage line shows only its net change from the month before the period to its last month.
+  function rrUsage() {
+    const k = rows('kpi'); if (!k) return null;
+    const ms = (S().monthW || {})[S().win] || WIN_MONTHS[S().win], rs = k.filter((x) => ms.includes(x.month)); if (!rs.length) return null;
+    const p = pick(k, (x) => x.month === addMonths(rs[0].month + '-01', -1).slice(0, 7)), z = rs[rs.length - 1]; if (!p) return null;
+    return { prevMonth: p.month, lastMonth: z.month, cons0: +p.consumption_kpi, cons1: +z.consumption_kpi, dsp0: +p.dsp_kpi, dsp1: +z.dsp_kpi,
+      cons: +z.consumption_kpi - +p.consumption_kpi, dsp: +z.dsp_kpi - +p.dsp_kpi, start: +p.consumption_kpi + +p.dsp_kpi, end: +z.blended_mrr };
+  }
+  const allRR = () => state.bscope === 'all';
   CARDS['c-bridge'] = {
-    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows'],
+    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows', 'kpi'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      $$('.ub-seg-channel button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.channel));
-      const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === state.channel);
-      const steps = [['Beginning', m.beginning, 'total'], ['New', m.new, 'up'], ['Expansion', m.expansion, 'up'], ['Reactivation', m.reactivation, 'up'],
+      const all = allRR(), ch = all ? 'Total' : state.channel;
+      $$('.ub-seg-bscope button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.bscope));
+      $$('.ub-seg-channel button').forEach((b) => { b.setAttribute('aria-pressed', b.dataset.v === ch); b.disabled = all && b.dataset.v !== 'Total'; });
+      const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === ch), u = all ? rrUsage() : null;
+      if (all && !u) return null;
+      const steps = [['Beginning', m.beginning + (u ? u.start : 0), 'total'], ['New', m.new, 'up'], ['Expansion', m.expansion, 'up'], ['Reactivation', m.reactivation, 'up'],
         ['Contraction', -m.contraction, 'down'], ['Cancellation', -m.cancellation, 'down']];
       if (Math.abs(m.adjustment) > 0.5) steps.push(['Aug. rebase', m.adjustment, m.adjustment >= 0 ? 'up' : 'down']);
-      steps.push(['Ending', m.ending, 'total']);
-      const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h);
+      if (u) steps.push(['Consumption change', u.cons, 'usage'], ['DSP change', u.dsp, 'usage']);
+      steps.push(['Ending', u ? u.end : m.ending, 'total']);
+      if (u) legend(el, [[B.peri, 'Total MRR'], [B.mint, 'Subscription gains'], [B.bad, 'Subscription losses'], [B.sky, 'Usage revenue, net change']]);
+      const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h), lh = u ? 44 : 30;
       let run = 0; const bars = steps.map(([label, v, kind]) => { const a = kind === 'total' ? 0 : run; const z = kind === 'total' ? v : run + v; run = kind === 'total' ? v : z; return { label, v, kind, a, z }; });
-      const y = d3.scaleLinear([0, d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - 30, 12]).nice();
+      const y = d3.scaleLinear([0, d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - lh, 12]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usd(t)));
       const x = d3.scaleBand(bars.map((b) => b.label), [left + 4, w - 4]).padding(0.28);
       yAxis(svg, y, left, w - 4, fmt.usd);
       const tip = tooltip(el);
+      const ui = bars.findIndex((b) => b.kind === 'usage');
+      if (ui > 0) { const xd = x(bars[ui].label) - x.step() * x.paddingInner() / 2;
+        svg.append('line').attr('x1', xd).attr('x2', xd).attr('y1', 8).attr('y2', h - lh + 4).attr('stroke', B.line).attr('stroke-dasharray', '3 3');
+        svg.append('text').attr('x', xd - 6).attr('y', 18).attr('text-anchor', 'end').attr('class', 'ub-tick').text('Subscription and services MRR');
+        svg.append('text').attr('x', xd + 6).attr('y', 18).attr('class', 'ub-tick').text('Usage revenue'); }
       bars.forEach((b, i) => {
-        const c = b.kind === 'total' ? B.peri : b.kind === 'up' ? B.mint : B.bad;
+        const c = b.kind === 'total' ? B.peri : b.kind === 'usage' ? B.sky : b.kind === 'up' ? B.mint : B.bad;
         svg.append('rect').attr('x', x(b.label)).attr('width', x.bandwidth()).attr('y', y(Math.max(b.a, b.z))).attr('height', Math.max(1, Math.abs(y(b.a) - y(b.z)))).attr('rx', 3).attr('fill', c)
-          .on('mousemove', (ev) => tip.show(ev, b.label, [[c, state.channel, fmt.usdFull(b.v)]])).on('mouseleave', () => tip.hide());
+          .on('mousemove', (ev) => tip.show(ev, b.label, [[c, u ? 'All recurring revenue' : ch, fmt.usdFull(b.v)]].concat(b.label === 'Consumption change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.cons0)} → ${fmt.usdFull(u.cons1)}`]] : b.label === 'DSP change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.dsp0)} → ${fmt.usdFull(u.dsp1)}`]] : []))).on('mouseleave', () => tip.hide());
         if (i < bars.length - 1) svg.append('line').attr('x1', x(b.label) + x.bandwidth()).attr('x2', x(bars[i + 1].label)).attr('y1', y(b.z)).attr('y2', y(b.z)).attr('class', 'ub-ref');
         svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', y(Math.max(b.a, b.z)) - 6).attr('text-anchor', 'middle').attr('class', 'ub-val').text(b.kind === 'total' ? fmt.usd(b.v) : fmt.signedUsd(b.v));
-        svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 10).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(x.bandwidth() < 58 ? b.label.slice(0, 6) : b.label);
+        if (u) b.label.split(' ').forEach((wd, j) => svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 26 + j * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(wd));
+        else svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 10).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(x.bandwidth() < 58 ? b.label.slice(0, 6) : b.label);
       });
-      return { columns: ['Step', state.channel + ' MRR'], rows: bars.map((b) => [b.label, b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
+      return { columns: ['Step', u ? 'All recurring revenue (total MRR)' : ch + ' MRR'], rows: bars.map((b) => [b.label, b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
     },
     note() {
       const mw = rows('mrr_windows'), log = rows(CH()); if (!mw || !log) return '';
-      const s = S(), m = winRows(mw, s.win, (r) => r.channel === state.channel);
-      let t = `${state.channel === 'Total' ? 'Subscription and services' : state.channel} MRR ${fmt.signedUsd(m.net_new)} net: new ${fmt.usd(m.new)}, expansion ${fmt.usd(m.expansion)}, cancellations ${fmt.usd(m.cancellation)}.`;
+      const s = S(), ch = allRR() ? 'Total' : state.channel, m = winRows(mw, s.win, (r) => r.channel === ch), u = allRR() ? rrUsage() : null;
+      let t = `${ch === 'Total' ? 'Subscription and services' : ch} MRR ${fmt.signedUsd(m.net_new)} net: new ${fmt.usd(m.new)}, expansion ${fmt.usd(m.expansion)}, cancellations ${fmt.usd(m.cancellation)}.`;
+      if (u) t = `All recurring revenue (total MRR, as on the KPI sheet) ${fmt.signedUsd(u.end - m.beginning - u.start)} to ${fmt.usd(u.end)}: subscription and services ${fmt.signedUsd(m.net_new)}, consumption ${fmt.signedUsd(u.cons)} and DSP ${fmt.signedUsd(u.dsp)}. Usage shows only its net change from ${fmt.monthLong(u.prevMonth)} to ${fmt.monthLong(u.lastMonth)}; it has no contracts to expand or cancel.`;
       const months = WIN_MONTHS[s.win];
-      const top = topChurns(log.filter((x) => state.channel === 'Total' || x.channel === state.channel), months, 3);
+      const top = topChurns(log.filter((x) => ch === 'Total' || x.channel === ch), months, 3);
       if (top) t += ` Largest cancellations: ${top}.`;
       if (Math.abs(m.adjustment) > 0.5) t += ` The rebase bar is the one-time August 2026 true-up of the sheet to Stripe, as published.`;
       return t;
@@ -1212,16 +1234,16 @@
       const d = need(el, this.data()); if (!d) return null;
       const tb = card('c-plan-july').querySelector('tbody');
       const sg = (v) => (v == null ? '—' : fmt.usdFull(v));
-      const cells = (x) => [fmt.month(x.month), x.status, sg(x.deck_revenue), sg(x.budget_revenue), sg(x.base_revenue), sg(x.upside_revenue), sg(x.base_revenue - x.deck_revenue), sg(x.deck_ebitda), sg(x.base_ebitda), sg(x.deck_cash), sg(x.base_cash)];
-      tb.replaceChildren(...d.july_forecast.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.month; cells(x).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 6 && x.base_revenue < x.deck_revenue) td.className = 'ub-neg'; if (i === 10 && x.base_cash < 0) td.className = 'ub-neg'; tr.appendChild(td); }); return tr; }));
-      return { columns: ['Month', 'Status', 'Revenue: July deck forecast', 'Revenue: budget', 'Revenue: actual or Base', 'Revenue: actual or Upside', 'Base vs July deck', 'EBITDA: July deck', 'EBITDA: actual or Base', 'Cash: July deck', 'Cash: actual or Base'], rows: d.july_forecast.map(cells) };
+      const cells = (x) => [fmt.month(x.month), x.status, sg(x.deck_revenue), sg(x.budget_revenue), sg(x.upside_revenue), sg(x.upside_revenue - x.deck_revenue), sg(x.deck_ebitda), sg(x.upside_ebitda), sg(x.deck_cash), sg(x.upside_cash)];
+      tb.replaceChildren(...d.july_forecast.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.month; cells(x).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 5 && x.upside_revenue < x.deck_revenue) td.className = 'ub-neg'; if (i === 9 && x.upside_cash < 0) td.className = 'ub-neg'; tr.appendChild(td); }); return tr; }));
+      return { columns: ['Month', 'Status', 'Revenue: July deck forecast', 'Revenue: budget', 'Revenue: actual or Upside', 'Upside vs July deck', 'EBITDA: July deck', 'EBITDA: actual or Upside', 'Cash: July deck', 'Cash: actual or Upside'], rows: d.july_forecast.map(cells) };
     },
     note() {
       const f = rows('july_forecast'); if (!f) return '';
       const q3 = f.filter((x) => x.month <= '2026-09'), dec = f[f.length - 1];
-      const gap = d3.sum(q3, (x) => x.base_revenue - x.deck_revenue), egap = d3.sum(q3, (x) => x.base_ebitda - x.deck_ebitda);
-      const neg = f.find((x) => x.base_cash < 0);
-      return `Q3 revenue came in ${fmt.usd(-gap)} under the July deck forecast and EBITDA ${fmt.usd(-egap)} worse. The deck had December at ${fmt.usd(dec.deck_revenue)} revenue and ${fmt.usd(dec.deck_ebitda)} EBITDA; CFO.ai now has ${fmt.usd(dec.base_revenue)} (Base) to ${fmt.usd(dec.upside_revenue)} (Upside) and ${fmt.usd(dec.base_ebitda)} EBITDA in Base.${neg ? ` Base cash goes below zero in ${fmt.monthLong(neg.month)}.` : ''}`;
+      const gap = d3.sum(q3, (x) => x.upside_revenue - x.deck_revenue), egap = d3.sum(q3, (x) => x.upside_ebitda - x.deck_ebitda);
+      const neg = f.find((x) => x.upside_cash < 0);
+      return `Q3 revenue came in ${fmt.usd(-gap)} under the July deck forecast and EBITDA ${fmt.usd(-egap)} worse. The deck had December at ${fmt.usd(dec.deck_revenue)} revenue and ${fmt.usd(dec.deck_ebitda)} EBITDA; the current Upside case has ${fmt.usd(dec.upside_revenue)} revenue and ${fmt.usd(dec.upside_ebitda)} EBITDA.${neg ? ` Upside cash goes below zero in ${fmt.monthLong(neg.month)}.` : ''}`;
     },
   };
 
@@ -1376,6 +1398,149 @@
     },
   };
 
+  // ---------- Financial statements: the quarter against budget (one card, four statements) and the year to date with the forecast
+  // fin_statements is long-form rows: {kind q|ytd|meta, statement, order, line, style band|line|sub|total|pct, better up|down, ratio_of, month, basis actual|budget|upside, value}.
+  const STMT = { summary: 'Summary', pl: 'Income statement', bs: 'Balance sheet', cf: 'Cash flows' };
+  const stOf = (r) => {
+    if (!r || !r.length) return null;
+    const num = (v) => (v == null || v === '' ? null : +v), meta = r.find((x) => x.kind === 'meta');
+    const rowsOf = (kind, st) => {
+      const by = d3.group(r.filter((x) => x.kind === kind && x.statement === st), (x) => +x.order);
+      return [...by.keys()].sort(d3.ascending).map((o) => { const g = by.get(o), h = g[0], vals = {};
+        g.forEach((x) => { if (x.month) vals[String(x.month).slice(0, 7) + '|' + x.basis] = num(x.value); });
+        return { line: h.line, style: h.style, better: h.better || 'up', ratio: h.ratio_of || null, vals }; });
+    };
+    return { close: meta ? String(meta.month).slice(0, 7) : null, rowsOf };
+  };
+  const ST = () => stOf(rows('fin_statements'));
+  const zf = (v) => (v == null ? '' : Math.abs(v) < 0.5 ? '–' : fmt.usdFull(v));
+  const pf = (v) => (v == null ? '' : d3.format('.1%')(v));
+  const ptf = (v) => (v == null ? '' : Math.abs(v) < 0.0005 ? '–' : (v > 0 ? '+' : '−') + d3.format('.1f')(Math.abs(v) * 100) + ' pts');
+  const finTone = (better, v) => (v == null || Math.abs(v) < 0.5e-3 ? null : (better === 'down' ? v < 0 : v > 0) ? 'good' : 'bad');
+  // A table with a group header row (a month, the quarter) over its sub-columns; rows are {band} or {style, cells}.
+  function stmtGrid(el, groups, grid, opt) {
+    const nC = 1 + d3.sum(groups, (g) => g.cols.length);
+    const fillOf = (st) => (st === 'total' ? { bg: d3.interpolateRgb(B.card, B.soft)(0.24), fg: B.fg } : null);
+    if (!opt || !opt.export) {
+      let wrapEl = el.querySelector(':scope > .ub-tablewrap');
+      if (!wrapEl) { wrapEl = document.createElement('div'); wrapEl.className = 'ub-tablewrap'; el.appendChild(wrapEl); }
+      const t = document.createElement('table'); t.className = 'ub-table ub-fin ub-stmt';
+      const th = document.createElement('thead'), g1 = document.createElement('tr'), g2 = document.createElement('tr');
+      const c0 = document.createElement('th'); c0.textContent = ''; g1.appendChild(c0);
+      const d0 = document.createElement('th'); d0.textContent = 'Driver'; g2.appendChild(d0);
+      groups.forEach((g) => { const h = document.createElement('th'); h.colSpan = g.cols.length; h.textContent = g.label; h.className = 'ub-stmt-group'; g1.appendChild(h);
+        g.cols.forEach((c, i) => { const s = document.createElement('th'); s.textContent = c; if (i === 0) s.className = 'ub-stmt-first'; g2.appendChild(s); }); });
+      th.append(g1, g2); t.appendChild(th);
+      const tb = document.createElement('tbody');
+      grid.forEach((r) => {
+        const tr = document.createElement('tr');
+        if (r.band) { tr.className = 'ub-fin-band'; const td = document.createElement('td'); td.colSpan = nC; td.textContent = r.band; tr.appendChild(td); tb.appendChild(tr); return; }
+        tr.className = 'ub-stmt-' + r.style; const f = fillOf(r.style);
+        r.cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c.t;
+          if (f) { td.style.background = f.bg; td.style.color = f.fg; }
+          if (c.tone) td.style.color = c.tone === 'good' ? B.good : B.bad;
+          if (c.first) td.className = 'ub-stmt-first';
+          if (r.style === 'total' || r.style === 'sub') td.style.fontWeight = '700';
+          if (r.style === 'pct' && i === 0) td.style.paddingLeft = '22px';
+          tr.appendChild(td); });
+        tb.appendChild(tr);
+      });
+      t.appendChild(tb); wrapEl.replaceChildren(t);
+    }
+    // SVG for Copy image
+    const flat = [''].concat(...groups.map((g) => g.cols));
+    const colW = flat.map((h, i) => Math.max(i ? 9 : 6, String(h).length, ...grid.filter((r) => !r.band).map((r) => String(r.cells[i].t).length)) * (i ? 8 : 7.6) + (i ? 18 : 24));
+    const w = d3.sum(colW), rh = 26, top = rh * 2, h = top + rh * grid.length;
+    const svg = svgFor(el, w, h);
+    if (!opt || !opt.export) svg.attr('class', 'ub-chart ub-offscreen');
+    svg.append('rect').attr('width', w).attr('height', h).attr('fill', B.card);
+    const xs = colW.map((_, i) => d3.sum(colW.slice(0, i)));
+    const tx = (i, y, s, color, bold, anchor) => svg.append('text').attr('x', anchor === 'middle' ? xs[i] : i ? xs[i] + colW[i] - 8 : xs[i] + 8).attr('y', y).attr('text-anchor', anchor || (i ? 'end' : 'start'))
+      .attr('fill', color).attr('font-size', 12).attr('font-weight', bold ? 700 : 400).text(s);
+    let ci = 1;
+    groups.forEach((g) => { const x0 = xs[ci], gw = d3.sum(colW.slice(ci, ci + g.cols.length));
+      svg.append('text').attr('x', x0 + gw / 2).attr('y', 17).attr('text-anchor', 'middle').attr('fill', B.fg).attr('font-size', 12).attr('font-weight', 700).text(g.label);
+      svg.append('line').attr('x1', x0 + 4).attr('x2', x0 + gw - 4).attr('y1', rh - 2).attr('y2', rh - 2).attr('stroke', B.line);
+      g.cols.forEach((c, k) => tx(ci + k, rh + 17, c, B.muted, true)); ci += g.cols.length; });
+    tx(0, rh + 17, 'Driver', B.muted, true);
+    grid.forEach((r, j) => {
+      const y0 = top + rh * j;
+      if (r.band) { svg.append('rect').attr('x', 0).attr('y', y0).attr('width', w).attr('height', rh).attr('fill', B.line); tx(0, y0 + 17, r.band, B.fg, true); return; }
+      const f = fillOf(r.style); if (f) svg.append('rect').attr('x', 0).attr('y', y0).attr('width', w).attr('height', rh).attr('fill', f.bg);
+      r.cells.forEach((c, i) => { const col = c.tone ? (c.tone === 'good' ? B.good : B.bad) : f ? f.fg : B.fg;
+        const t = tx(i, y0 + 17, c.t, col, r.style === 'total' || r.style === 'sub'); if (r.style === 'pct' && i === 0) t.attr('x', 22); });
+      svg.append('line').attr('x1', 0).attr('x2', w).attr('y1', y0 + rh - 0.5).attr('y2', y0 + rh - 0.5).attr('stroke', B.grid);
+    });
+  }
+  // Point-in-time lines: a quarter shows the last month's balance (or the first month's opening balance), not a sum.
+  const qAgg = (st, line) => (st === 'bs' || /Closing Balance/.test(line) ? 'last' : /Opening Balance/.test(line) ? 'first' : 'sum');
+  CARDS['c-fin-q'] = {
+    kind: 'finq', src: ['fin_statements'], data: () => ['fin_statements'],
+    draw(el, opt) {
+      $$('.ub-seg-stmt button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.stmt));
+      const d = need(el, this.data()); if (!d) return null;
+      const F = stOf(d.fin_statements); if (!F) return null;
+      const st = state.stmt, R = F.rowsOf('q', st);
+      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => R.some((r) => r.vals[m + '|actual'] != null) && m <= F.close);
+      const full = ms.length === 3, qLabel = st === 'bs' ? `Q3 '26 ${full ? 'end' : 'to date'} (${fmt.month(ms[ms.length - 1]).split(' ')[0]} close)` : full ? "Q3 '26" : `Q3 '26 to date (${ms.map((m) => fmt.month(m).split(' ')[0]).join('–')})`;
+      const groups = ms.map((m) => ({ label: fmt.month(m).replace(' ', " '"), cols: ['Actual', 'Budget', 'Variance'] })).concat([{ label: qLabel, cols: ['Actual', 'Budget', 'Variance'] }]);
+      const val = (r, m, b) => r.vals[m + '|' + b];
+      const agg = (r, b) => { const xs = ms.map((m) => val(r, m, b)).filter((v) => v != null); if (!xs.length) return null;
+        const k = qAgg(st, r.line); return k === 'last' ? xs[xs.length - 1] : k === 'first' ? xs[0] : d3.sum(xs); };
+      const byLine = new Map(R.map((r) => [r.line, r]));
+      const grid = [], table = [];
+      R.forEach((r) => {
+        if (r.style === 'band') { grid.push({ band: r.line }); return; }
+        const trip = (a, b) => (r.style === 'pct' ? [{ t: pf(a) }, { t: pf(b) }, { t: ptf(a - b), tone: finTone('up', a - b) }]
+          : [{ t: zf(a) }, { t: zf(b) }, { t: zf(a - b), tone: finTone(r.better, a - b) }]);
+        let cells = [{ t: r.line }];
+        const out = [r.line];
+        ms.forEach((m) => { const a = val(r, m, 'actual'), b = val(r, m, 'budget'), c = trip(a, b); c[0].first = true; cells = cells.concat(c); out.push(...c.map((x) => x.t)); });
+        let qa, qb;
+        if (r.style === 'pct' && r.ratio) { const [n, dn] = r.ratio.split('/').map((x) => byLine.get(x)); qa = agg(n, 'actual') / agg(dn, 'actual'); qb = agg(n, 'budget') / agg(dn, 'budget'); }
+        else { qa = agg(r, 'actual'); qb = agg(r, 'budget'); }
+        const qc = trip(qa, qb); qc[0].first = true; cells = cells.concat(qc); out.push(...qc.map((x) => x.t));
+        grid.push({ style: r.style, cells }); table.push(out);
+      });
+      stmtGrid(el, groups, grid, opt);
+      return { columns: ['Driver'].concat(...groups.map((g) => g.cols.map((c) => `${g.label} ${c}`))), rows: table };
+    },
+    note() {
+      const F = ST(); if (!F) return '';
+      const R = F.rowsOf('q', 'summary'), g = (n) => R.find((r) => r.line === n);
+      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
+      const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance'), last = ms[ms.length - 1];
+      const pend = ms.length < 3 ? ' September joins once its books close.' : '';
+      return `Actual against the 2026 budget; variance is actual minus budget, green favorable and red unfavorable. Switch statements above the table; Copy image copies the one showing. ${ms.length < 3 ? 'Quarter to date' : 'For the quarter'}, revenue is ${fmt.usd(s(rev, 'actual'))} against ${fmt.usd(s(rev, 'budget'))} budgeted and EBITDA ${fmt.usd(s(eb, 'actual'))} against ${fmt.usd(s(eb, 'budget'))}; cash closed ${fmt.monthLong(last).split(' ')[0]} at ${fmt.usd(cash.vals[last + '|actual'])} against ${fmt.usd(cash.vals[last + '|budget'])} in the budget.${pend}`;
+    },
+  };
+
+  CARDS['c-fin-ytd'] = {
+    kind: 'finytd', src: ['fin_statements'], data: () => ['fin_statements'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      const F = stOf(d.fin_statements); if (!F) return null;
+      const R = F.rowsOf('ytd', 'ytd'), ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`);
+      const A = ms.filter((m) => m <= F.close), U = ms.filter((m) => m > F.close);
+      const lab = (m) => fmt.month(m).replace(' ', " '");
+      const groups = [{ label: `Actual (last close ${fmt.month(F.close).split(' ')[0]})`, cols: A.map(lab) }].concat(U.length ? [{ label: 'Upside case forecast', cols: U.map(lab) }] : []);
+      const grid = [], table = [];
+      R.forEach((r) => {
+        if (r.style === 'band') { grid.push({ band: r.line }); return; }
+        const cells = [{ t: r.line }].concat(ms.map((m, i) => { const v = r.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')]; return { t: r.style === 'pct' ? pf(v) : zf(v), first: i === A.length, tone: !(r.style === 'pct') && v != null && v < -0.5 && /Closing Balance/.test(r.line) ? 'bad' : null }; }));
+        grid.push({ style: r.style, cells }); table.push(cells.map((c) => c.t));
+      });
+      stmtGrid(el, groups, grid, opt);
+      return { columns: ['Driver'].concat(ms.map((m) => `${fmt.month(m)} (${m <= F.close ? 'actual' : 'Upside'})`)), rows: table };
+    },
+    note() {
+      const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), g = (n) => R.find((r) => r.line === n);
+      const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance');
+      const neg = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`).find((m) => m > F.close && cash.vals[m + '|upside'] < 0);
+      return `Actuals through ${fmt.monthLong(F.close)}, then the current Upside case. December: revenue ${fmt.usd(rev.vals['2026-12|upside'])}, EBITDA ${fmt.usd(eb.vals['2026-12|upside'])}, closing cash ${fmt.usd(cash.vals['2026-12|upside'])}.${neg ? ` Cash goes below zero in ${fmt.monthLong(neg)} in this case, before any new financing.` : ''}`;
+    },
+  };
+
   CARDS['c-mqlchannels'] = {
     kind: 'close', src: ['mqls', 'kpi'], data: () => [id('mqls'), 'kpi'],
     draw(el, opt) {
@@ -1414,8 +1579,10 @@
     'c-revdetail': () => { const rw = rows('revenue_windows'); if (!rw) return ''; const c = winRows(rw, S().win); return `${fmt.usd(c.subscription)} subscription and ${fmt.usd(c.usage)} usage revenue in ${WIN_LABEL[S().win]}`; },
     'c-mrrtrend': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), rc = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
       return `Reseller licenses ${up(r.ending, rc.ending)} ${fmt.pct(chg(r.ending, rc.ending)).slice(1)} to ${fmt.usd(r.ending)}`; },
-    'c-bridge': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === state.channel);
-      return `${state.channel === 'Total' ? '' : state.channel + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
+    'c-bridge': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const ch = allRR() ? 'Total' : state.channel, m = winRows(mw, S().win, (r) => r.channel === ch);
+      const u = allRR() ? rrUsage() : null;
+      if (u) return `Total MRR ${fmt.signedUsd(u.end - m.beginning - u.start)}: subscription ${fmt.signedUsd(m.net_new)}, usage ${fmt.signedUsd(u.cons + u.dsp)}`;
+      return `${ch === 'Total' ? '' : ch + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
     'c-salestiles': () => { const bt = rows('booking_totals'); if (!bt) return ''; const s = S(), b = winRows(bt, s.book), c = winRows(bt, s.bookComp);
       return `Software bookings ${up(b.tcv, c.tcv)} ${fmt.pct(chg(b.tcv, c.tcv)).slice(1)} to ${fmt.usd(b.tcv)}; average deal ${fmt.usd(b.avg_deal)}`; },
     'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const Y = S().end.slice(0, 4), sw = bk.filter((b) => b.category === 'Software' && b.date.startsWith(Y));
@@ -1434,6 +1601,16 @@
       return `${won.length} of the ${r.length} July deck deals won, ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV`; },
     'c-fin-path': () => { const f = FIN(); if (!f) return ''; const A = f.months.filter((m) => m.revenue != null), l = A[A.length - 1], dec = f.months[f.months.length - 1];
       return `EBITDA ${fmt.usd(l.ebitda)} in ${fmt.monthLong(l.month).split(' ')[0]}; the ${f.fcase} case reaches ${fmt.usd(dec.upside_ebitda)} by December against ${fmt.usd(dec.budget_ebitda)} in the budget`; },
+    'c-fin-q': () => { const F = ST(); if (!F) return ''; const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), last = ms[ms.length - 1], to = ms.length < 3 ? ' to date' : '';
+      const R = F.rowsOf('q', state.stmt), g = (n) => R.find((r) => r.line === n), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
+      const gap = (a, b, up) => `${fmt.usd(Math.abs(a - b))} ${(up ? a >= b : a <= b) ? 'ahead of' : 'behind'} budget`;
+      if (state.stmt === 'bs') { const c = g('Cash & Equivalents'), a = c.vals[last + '|actual'], b = c.vals[last + '|budget']; return `Cash ${fmt.usd(a)} at the end of ${fmt.monthLong(last).split(' ')[0]}, ${fmt.usd(b - a)} below budget`; }
+      if (state.stmt === 'cf') { const c = g('Cash Flow from Operating Activities'); return `Q3${to} operating cash flow ${fmt.usd(s(c, 'actual'))}, ${gap(s(c, 'actual'), s(c, 'budget'), true)}`; }
+      if (state.stmt === 'pl') { const c = g('Net Income'); return `Q3${to} net income ${fmt.usd(s(c, 'actual'))}, ${gap(s(c, 'actual'), s(c, 'budget'), true)}`; }
+      const e = g('EBITDA'); return `Q3${to} EBITDA ${fmt.usd(s(e, 'actual'))}, ${gap(s(e, 'actual'), s(e, 'budget'), true)}`; },
+    'c-fin-ytd': () => { const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), rv = R.find((r) => r.line === 'Total Revenue');
+      const ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`), tot = d3.sum(ms, (m) => rv.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')] || 0);
+      return `2026 revenue comes to ${fmt.usd(tot)} in the Upside case, with actuals through ${fmt.monthLong(F.close).split(' ')[0]}`; },
     'c-fin-rev': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'revenue' && x.line === 'Total Revenue'); const v = t.ytd_actual - t.ytd_budget;
       return `Revenue ${fmt.usd(t.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} (${d3.format('.1%')(Math.abs(v) / t.ytd_budget)}) ${v < 0 ? 'under' : 'over'} budget`; },
     'c-fin-exp': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'expenses' && x.line.startsWith('Total')); const v = t.ytd_actual - t.ytd_budget;
@@ -1441,7 +1618,7 @@
     'c-fin-sum': () => { const f = FIN(); if (!f) return ''; const e = f.lines.find((x) => x.section === 'summary' && x.line === 'EBITDA'); const v = e.ytd_actual - e.ytd_budget;
       return `EBITDA ${fmt.usd(e.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} ${v < 0 ? 'behind' : 'ahead of'} budget`; },
     'c-plan-july': () => { const f = rows('july_forecast'); if (!f) return ''; const dec = f[f.length - 1];
-      return `December revenue now ${fmt.usd(dec.base_revenue)} to ${fmt.usd(dec.upside_revenue)} against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
+      return `December revenue now ${fmt.usd(dec.upside_revenue)} in the Upside case against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
     'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
       const max = d3.max(ec, (x) => +x.end_clients); const mtd = e.month === s.openMonth ? ', month to date' : '';
@@ -1532,20 +1709,20 @@
   };
 
   CARDS['c-plan-trend'] = {
-    kind: 'plan', src: ['plan_targets', 'bookings'], data: () => [id('plan_targets'), 'plan_actuals'],
+    kind: 'plan', src: ['plan_targets', 'bookings'], data: () => [id('plan_targets'), 'plan_targets_base', 'plan_actuals'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const T = d[id('plan_targets')], A = d.plan_actuals, cs = caseOf(T), ms = PLAN_HIST.concat(PLAN_M);
+      const T = d[id('plan_targets')], TB = d.plan_targets_base, A = d.plan_actuals, cs = caseOf(T), ms = PLAN_HIST.concat(PLAN_M);
       const SR = [{ key: 'Direct', label: 'New customers, Direct', color: B.peri }, { key: 'Reseller', label: 'New customers, Reseller', color: B.sky },
         { key: 'Existing', label: 'Existing customers (upsells, reactivations)', color: B.mint }];
       const data = ms.map((m) => { const p = paceOf(m), dr = actOf(A, m, 'Direct'), rr = actOf(A, m, 'Reseller'), tr = actOf(A, m, 'Total');
         const r = { month: m, Direct: dr ? dr.new_mrr : 0, Reseller: rr ? rr.new_mrr : 0, Existing: tr ? tr.existing_mrr : 0, has: m <= S().today.slice(0, 7), target: tgt(T, m, 'Total', 'all_new_mrr'),
           tNew: tgt(T, m, 'Total', 'new_mrr'), tExp: tgt(T, m, 'Total', 'expansion') };
-        r.total = r.Direct + r.Reseller + r.Existing; r.pace = p ? r.total * p.f : null; return r; });
-      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target (new customers plus expansion)`], [B.muted, 'Pace for the open month']]));
+        r.base = tgt(TB, m, 'Total', 'all_new_mrr'); r.total = r.Direct + r.Reseller + r.Existing; r.pace = p ? r.total * p.f : null; return r; });
+      legend(el, SR.map((x) => [x.color, x.label]).concat([[B.amber, `${cs} target (new customers plus expansion)`], [B.prior, 'Base target (dashed)'], [B.muted, 'Pace for the open month']]));
       const { w, h } = size(el, opt, (opt && opt.height) || 300);
       const svg = svgFor(el, w, h);
-      const max = d3.max(data, (r) => Math.max(r.total, r.pace || 0, r.target || 0)) || 1;
+      const max = d3.max(data, (r) => Math.max(r.total, r.pace || 0, r.target || 0, r.base || 0)) || 1;
       const y = d3.scaleLinear([0, max * 1.15], [h - 28, 16]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usdS(t)));
       const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.28), bw = x.bandwidth();
@@ -1557,23 +1734,24 @@
         if (r.pace != null && r.pace > acc) svg.append('rect').attr('x', x(r.month) + 0.5).attr('width', bw - 1).attr('y', y(r.pace)).attr('height', Math.max(0, y(acc) - y(r.pace))).attr('fill', 'none').attr('stroke', B.muted).attr('stroke-dasharray', '4 3');
         const top = Math.max(acc, r.pace || 0);
         if (acc) svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', y(top) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(r.pace != null ? `${fmt.usdS(acc)} → ${fmt.usdS(r.pace)}` : fmt.usdS(acc));
+        if (r.base != null) svg.append('line').attr('x1', x(r.month) - 4).attr('x2', x(r.month) + bw + 4).attr('y1', y(r.base)).attr('y2', y(r.base)).attr('stroke', B.prior).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3');
         if (r.target != null) svg.append('line').attr('x1', x(r.month) - 4).attr('x2', x(r.month) + bw + 4).attr('y1', y(r.target)).attr('y2', y(r.target)).attr('stroke', B.amber).attr('stroke-width', 2.5).attr('stroke-linecap', 'round');
         svg.append('text').attr('x', x(r.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(r.month) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(r.month));
         svg.append('rect').attr('x', x(r.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
           .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(r.month), SR.map((s) => [s.color, s.label, fmt.usdFull(r[s.key])]).concat([[null, 'All new MRR', fmt.usdFull(r.total)]])
-            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, `${fmt.usdFull(r.target)} (${fmt.usdFull(r.tNew)} new, ${fmt.usdFull(r.tExp || 0)} expansion)`]] : [[null, 'Before the plan', '']])))
+            .concat(r.pace != null ? [[B.muted, 'Full-month pace', fmt.usdFull(r.pace)]] : []).concat(r.target != null ? [[B.amber, `${cs} target`, `${fmt.usdFull(r.target)} (${fmt.usdFull(r.tNew)} new, ${fmt.usdFull(r.tExp || 0)} expansion)`], [B.prior, 'Base target', fmt.usdFull(r.base)]] : [[null, 'Before the plan', '']])))
           .on('mouseleave', () => tip.hide());
       });
-      return { columns: ['Month', 'New customers, Direct', 'New customers, Reseller', 'Existing customers', 'All new MRR', 'Full-month pace', `${cs} target`, 'Target: new customers', 'Target: expansion'],
+      return { columns: ['Month', 'New customers, Direct', 'New customers, Reseller', 'Existing customers', 'All new MRR', 'Full-month pace', `${cs} target`, 'Target: new customers', 'Target: expansion', 'Base target'],
         rows: data.map((r) => [fmt.monthLong(r.month), r.has ? fmt.usdFull(r.Direct) : '', r.has ? fmt.usdFull(r.Reseller) : '', r.has ? fmt.usdFull(r.Existing) : '', r.has ? fmt.usdFull(r.total) : '', r.pace != null ? fmt.usdFull(r.pace) : '',
-          r.target != null ? fmt.usdFull(r.target) : '', r.tNew != null ? fmt.usdFull(r.tNew) : '', r.tExp != null ? fmt.usdFull(r.tExp) : '']) };
+          r.target != null ? fmt.usdFull(r.target) : '', r.tNew != null ? fmt.usdFull(r.tNew) : '', r.tExp != null ? fmt.usdFull(r.tExp) : '', r.base != null ? fmt.usdFull(r.base) : '']) };
     },
     note() {
-      const T = rows(id('plan_targets')), A = rows('plan_actuals'); if (!T || !A) return '';
-      const a = tgt(T, PLAN_M[0], 'Total', 'all_new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'all_new_mrr');
+      const T = rows(id('plan_targets')), TB = rows('plan_targets_base'), A = rows('plan_actuals'); if (!T || !A || !TB) return '';
+      const a = tgt(T, PLAN_M[0], 'Total', 'all_new_mrr'), z = tgt(T, PLAN_M[5], 'Total', 'all_new_mrr'), zb = tgt(TB, PLAN_M[5], 'Total', 'all_new_mrr');
       const m = planMonth(), p = paceOf(m), r = actOf(A, m, 'Total');
       const now = r && p ? ` ${fmt.monthLong(m)} so far: ${fmt.usd(r.all_new_mrr)}, pacing to ${fmt.usd(r.all_new_mrr * p.f)} against ${fmt.usd(tgt(T, m, 'Total', 'all_new_mrr'))}.` : '';
-      return `All MRR signed in the Wins tab, new and existing customers. The ${caseOf(T)} case target (new-customer MRR plus expansion MRR) rises from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March.${now}`;
+      return `All MRR signed in the Wins tab, new and existing customers. The ${caseOf(T)} case target (new-customer MRR plus expansion MRR) rises from ${fmt.usd(a)} in October to ${fmt.usd(z)} in March (Base: ${fmt.usd(zb)}).${now}`;
     },
   };
 
@@ -1685,6 +1863,156 @@
     },
   };
 
+  // ---------- monthly waterfalls: each column climbs from the opening balance by the inflows, then drops by the outflows to the ending balance
+  function wfColumns(el, opt, cols, keys, o) {
+    legend(el, keys.filter((k, i) => keys.findIndex((q) => q.label === k.label) === i).map((k) => [k.color, k.label]).concat(o.legend || []));
+    const { w, h } = size(el, opt, (opt && opt.height) || 320), svg = svgFor(el, w, h);
+    const ins = keys.filter((k) => k.dir > 0), outs = keys.filter((k) => k.dir < 0);
+    cols.forEach((c) => { c.high = c.open + d3.sum(ins, (k) => Math.max(0, c[k.key] || 0)); });
+    let lo = d3.min(cols, (c) => Math.min(c.open, c.end)); const hi = d3.max(cols, (c) => c.high);
+    lo = o.zero === false ? Math.max(0, lo - (hi - lo) * 0.25) : Math.min(0, lo);
+    const y = d3.scaleLinear([lo, hi + (hi - lo) * 0.1], [h - 30, 14]).nice();
+    const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usdS(t)));
+    const x = d3.scaleBand(cols.map((c) => c.month), [left + 4, w - 4]).padding(0.3), bw = x.bandwidth(), hw = bw / 2 - 1;
+    yAxis(svg, y, left, w - 4, fmt.usdS);
+    const firstLight = cols.find((c) => c.light);
+    if (firstLight && o.lightLabel) {
+      const x0 = x(firstLight.month) - x.step() * x.paddingInner() / 2;
+      svg.append('rect').attr('x', x0).attr('y', 4).attr('width', w - 4 - x0).attr('height', h - 30).attr('fill', B.grid).attr('opacity', 0.55);
+      svg.append('text').attr('x', x0 + 6).attr('y', 14).attr('class', 'ub-tick').text(o.lightLabel);
+    }
+    const tip = tooltip(el), every = Math.ceil(cols.length / Math.max(1, Math.floor((w - left) / 64)));
+    (o.overlay || []).forEach((v) => { if (x(v.month) == null) return;
+      svg.append('line').attr('x1', x(v.month) - 6).attr('x2', x(v.month) + bw + 6).attr('y1', y(v.value)).attr('y2', y(v.value)).attr('stroke', o.overlayColor || B.amber).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3'); });
+    cols.forEach((c, i) => {
+      const op = c.light ? 0.72 : 1;
+      // Inflows climb from the opening balance (left half); outflows fall from that peak to the ending balance (right half).
+      let base = c.open;
+      ins.forEach((k) => { const v = Math.max(0, c[k.key] || 0); if (!v) return;
+        svg.append('rect').attr('x', x(c.month)).attr('width', hw).attr('y', y(base + v)).attr('height', Math.max(0.5, y(base) - y(base + v))).attr('fill', k.color).attr('opacity', op); base += v; });
+      let top = c.high;
+      outs.forEach((k) => { const v = Math.max(0, c[k.key] || 0); if (!v) return;
+        svg.append('rect').attr('x', x(c.month) + bw / 2 + 1).attr('width', hw).attr('y', y(top)).attr('height', Math.max(0.5, y(top - v) - y(top))).attr('fill', k.color).attr('opacity', op); top -= v; });
+      svg.append('line').attr('x1', x(c.month) + hw).attr('x2', x(c.month) + bw).attr('y1', y(c.high)).attr('y2', y(c.high)).attr('class', 'ub-ref');
+      svg.append('line').attr('x1', x(c.month) - 3).attr('x2', x(c.month) + bw + 3).attr('y1', y(c.end)).attr('y2', y(c.end)).attr('stroke', B.fg).attr('stroke-width', 2);
+      if (i < cols.length - 1) svg.append('line').attr('x1', x(c.month) + bw + 3).attr('x2', x(cols[i + 1].month) - 3).attr('y1', y(c.end)).attr('y2', y(c.end)).attr('class', 'ub-ref');
+      if (i % every === 0 || i === cols.length - 1) {
+        svg.append('text').attr('x', x(c.month) + bw / 2).attr('y', y(c.high) - 6).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.usdS(c.end));
+        svg.append('text').attr('x', x(c.month) + bw / 2).attr('y', h - 10).attr('text-anchor', 'middle').attr('class', c.light ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(c.month));
+      }
+      svg.append('rect').attr('x', x(c.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
+        .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(c.month) + (c.light && o.lightTip ? ' · ' + o.lightTip : ''), [[null, 'Opening', fmt.usdFull(c.open)]]
+          .concat(keys.filter((k) => c[k.key] && !/^adj/.test(k.key)).map((k) => [k.color, k.label, (k.dir < 0 ? '−' : '+') + fmt.usdFull(Math.abs(c[k.key])).replace('−', '')]))
+          .concat(c.adjust ? [[B.prior, c.adjustLabel || 'Adjustment', fmt.signedUsd(c.adjust)]] : []).concat([[B.fg, 'Ending', fmt.usdFull(c.end)]])
+          .concat((o.overlay || []).filter((v) => v.month === c.month).map((v) => [o.overlayColor || B.amber, v.label, fmt.usdFull(v.value)]))))
+        .on('mouseleave', () => tip.hide());
+    });
+  }
+
+  const WF_CH = { Total: 'Total', Direct: 'Direct', Reseller: 'Reseller' };
+  CARDS['c-plan-mrrwf'] = {
+    kind: 'mrrwf', src: ['mrr_waterfall'], data: () => ['mrr_waterfall'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      $$('.ub-seg-wfch button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.wfch));
+      $$('.ub-seg-wfcase button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.wfcase));
+      const cs = state.wfcase, other = cs === 'Upside' ? 'Base' : 'Upside', bas = (c) => c.toLowerCase();
+      const all = d.mrr_waterfall.filter((r) => r.channel === WF_CH[state.wfch]), R = all.filter((r) => r.basis === 'actual' || r.basis === bas(cs));
+      const overlay = all.filter((r) => r.basis === bas(other)).map((r) => ({ month: r.month, value: +r.ending, label: `${other} case ending` }));
+      const keys = [{ key: 'losses', label: 'Churn and contraction', color: B.bad, dir: -1 }, { key: 'adjDown', label: 'Rebase or model baseline', color: B.prior, dir: -1 },
+        { key: 'new_pipeline', label: 'New customers', color: B.peri, dir: 1 }, { key: 'new_named', label: 'Named Upside deals (Liberty)', color: B.deep, dir: 1 },
+        { key: 'expansion', label: 'Expansion and reactivation', color: B.mint, dir: 1 }, { key: 'expansion_named', label: 'Named expansion (L2T, reseller accounts)', color: B.sky, dir: 1 },
+        { key: 'adjUp', label: 'Rebase or model baseline', color: B.prior, dir: 1 }];
+      const cols = R.map((r) => ({ month: r.month, open: +r.opening, end: +r.ending, losses: +r.losses, new_pipeline: +r.new_pipeline, new_named: +r.new_named, expansion: +r.expansion,
+        expansion_named: +r.expansion_named, adjDown: Math.max(0, -r.adjustment), adjUp: Math.max(0, +r.adjustment), adjust: +r.adjustment, adjustLabel: r.adjustment_label, light: r.basis !== 'actual' }));
+      wfColumns(el, opt, cols, cs === 'Base' ? keys.filter((k) => !/named/.test(k.key)) : keys, { lightLabel: `${cs} case`, lightTip: `${cs} case`, legend: [[B.fg, `Ending MRR, ${cs} case`], [B.amber, `Ending MRR, ${other} case (dashed)`]], zero: false, overlay });
+      const oe = (m) => { const v = pick(overlay, (q) => q.month === m); return v ? fmt.usdFull(v.value) : ''; };
+      return { columns: ['Month', 'Basis', 'Opening MRR', 'New customers', 'Named Upside deals', 'Expansion and reactivation', 'Named expansion', 'Churn and contraction', 'Rebase or baseline', 'Ending MRR', `Ending MRR, ${other} case`],
+        rows: R.map((r) => [fmt.monthLong(r.month), r.basis === 'actual' ? 'Actual' : `${cs} case`, fmt.usdFull(r.opening), fmt.usdFull(r.new_pipeline), fmt.usdFull(r.new_named), fmt.usdFull(r.expansion),
+          fmt.usdFull(r.expansion_named), '−' + fmt.usdFull(r.losses), r.adjustment ? fmt.signedUsd(r.adjustment) : '', fmt.usdFull(r.ending), oe(r.month)]) };
+    },
+    note() {
+      const R = rows('mrr_waterfall'); if (!R) return '';
+      const r = R.filter((x) => x.channel === WF_CH[state.wfch]), a = pick(r, (x) => x.month === '2026-09');
+      const z = (b) => pick(r, (x) => x.month === '2027-03' && x.basis === b), pl = (b) => r.filter((x) => x.basis === b);
+      if (!a || !z('upside') || !z('base')) return '';
+      const named = d3.sum(pl('upside'), (x) => +x.new_named + +x.expansion_named), nw = (b) => d3.sum(pl(b), (x) => +x.new_pipeline);
+      return `${state.wfch === 'Total' ? 'Subscription' : state.wfch} MRR goes from ${fmt.usd(a.ending)} in September to ${fmt.usd(z('base').ending)} in March in the Base case and ${fmt.usd(z('upside').ending)} in the Upside case. The gap is the named Upside deals (${fmt.usd(named)} of MRR by March); both cases need about the same new-customer MRR from pipeline (${fmt.usd(nw('base'))} Base, ${fmt.usd(nw('upside'))} Upside, which replaces churn on a larger base). October opens at the model's September baseline (${fmt.signedUsd(+pick(r, (x) => x.month === '2026-10').adjustment)} against the KPI sheet).`;
+    },
+  };
+
+  const PW_BLOCK = { Total: null, New: ['Direct', 'Reseller', 'Not yet tagged'], Direct: ['Direct'], Reseller: ['Reseller'], Expansion: ['Expansion'] };
+  const pwRows = (P) => { const want = PW_BLOCK[state.pwblock], F = ['beginning', 'created', 'moved_in', 'increase', 'decrease', 'won', 'lost', 'ending', 'created_deals', 'won_deals', 'lost_deals'];
+    return d3.groups(P.filter((r) => !want || want.includes(r.block)), (r) => r.month).map(([m, rs]) => { const o = { month: m }; F.forEach((f) => { o[f] = d3.sum(rs, (r) => +r[f]); }); return o; }).sort((a, z) => d3.ascending(a.month, z.month)); };
+  // The months of the date range that the history covers; a range with none falls back to the last three months it holds.
+  const pwSel = (R) => { const ms = selMonths(), r = R.filter((x) => ms.includes(x.month)); return r.length ? r : R.slice(-3); };
+  CARDS['c-pipewf'] = {
+    kind: 'pipewf', src: ['pipeline_waterfall'], data: () => ['pipeline_waterfall'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      $$('.ub-seg-pwblock button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.pwblock));
+      const R = pwSel(pwRows(d.pipeline_waterfall));
+      const keys = [{ key: 'won', label: 'Won', color: B.good, dir: -1 }, { key: 'lost', label: 'Lost', color: B.bad, dir: -1 }, { key: 'decrease', label: 'Value lowered', color: B.prior, dir: -1 },
+        { key: 'created', label: 'Created', color: B.peri, dir: 1 }, { key: 'moved_in', label: 'Reopened or moved in', color: B.lav, dir: 1 }, { key: 'increase', label: 'Value raised', color: B.sky, dir: 1 }];
+      wfColumns(el, opt, R.map((r) => ({ ...r, open: r.beginning, end: r.ending })), keys, { legend: [[B.fg, 'Open pipeline at month end']] });
+      return { columns: ['Month', 'Opening', 'Created', 'Reopened or moved in', 'Value raised', 'Value lowered', 'Won', 'Lost', 'Ending', 'Deals created', 'Deals won', 'Deals lost'],
+        rows: R.map((r) => [fmt.monthLong(r.month), fmt.usdFull(r.beginning), fmt.usdFull(r.created), fmt.usdFull(r.moved_in), fmt.usdFull(r.increase), '−' + fmt.usdFull(r.decrease), '−' + fmt.usdFull(r.won), '−' + fmt.usdFull(r.lost), fmt.usdFull(r.ending), r.created_deals, r.won_deals, r.lost_deals]) };
+    },
+    note() {
+      const P = rows('pipeline_waterfall'); if (!P) return '';
+      const q = pwSel(pwRows(P)), a = q[0], z = q[q.length - 1];
+      if (!a || !z) return '';
+      const per = q.length > 1 ? `${fmt.monthLong(a.month)} to ${fmt.monthLong(z.month)}` : fmt.monthLong(a.month);
+      return `${per}: ${fmt.usd(d3.sum(q, (r) => r.created))} created, ${fmt.usd(d3.sum(q, (r) => r.won))} won and ${fmt.usd(d3.sum(q, (r) => r.lost))} lost; open pipeline went from ${fmt.usd(a.beginning)} to ${fmt.usd(z.ending)}. Values are HubSpot deal amounts (contract value).`;
+    },
+  };
+
+  CARDS['c-plan-pipeneed'] = {
+    kind: 'pipeneed', src: ['pipeline_needed', 'plan_targets', 'opps_channel'], data: () => ['pipeline_needed'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      const N = d.pipeline_needed, ms = ['2026-08', '2026-09'].concat(PLAN_M), b = pick(N, (r) => r.kind === 'basis');
+      const nd = (cs, m) => pick(N, (r) => r.kind === 'month' && r.case === cs && r.month === m), ac = (m) => pick(N, (r) => r.kind === 'actual' && r.month === m);
+      legend(el, [[B.peri, 'Upside: opportunities to create'], [B.amber, 'Base: opportunities to create (dashed)'], [B.fg, 'Created (actual; October to date)']]);
+      const { w, h } = size(el, opt, (opt && opt.height) || 280), svg = svgFor(el, w, h);
+      const max = d3.max(ms, (m) => Math.max((nd('Upside', m) || {}).created_needed || 0, (ac(m) || {}).created_actual || 0)) || 1;
+      const y = d3.scaleLinear([0, max * 1.15], [h - 28, 12]).nice(), left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.n(t)));
+      const x = d3.scaleBand(ms, [left + 4, w - 4]).padding(0.3), bw = x.bandwidth();
+      yAxis(svg, y, left, w - 4, fmt.n);
+      const tip = tooltip(el);
+      ms.forEach((m) => {
+        const u = nd('Upside', m), bs = nd('Base', m), a = ac(m);
+        if (u) { svg.append('rect').attr('x', x(m)).attr('width', bw).attr('y', y(u.created_needed)).attr('height', y(0) - y(u.created_needed)).attr('fill', B.peri).attr('opacity', 0.85);
+          svg.append('text').attr('x', x(m) + bw / 2).attr('y', y(Math.max(u.created_needed, bs ? bs.created_needed : 0)) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(Math.ceil(u.created_needed))); }
+        if (bs) svg.append('line').attr('x1', x(m) - 4).attr('x2', x(m) + bw + 4).attr('y1', y(bs.created_needed)).attr('y2', y(bs.created_needed)).attr('stroke', B.amber).attr('stroke-width', 2.5).attr('stroke-dasharray', '5 3');
+        if (a) { svg.append('line').attr('x1', x(m) - 4).attr('x2', x(m) + bw + 4).attr('y1', y(a.created_actual)).attr('y2', y(a.created_actual)).attr('stroke', B.fg).attr('stroke-width', 2.5);
+          if (!u) svg.append('text').attr('x', x(m) + bw / 2).attr('y', y(a.created_actual) - 5).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 11).text(fmt.n(a.created_actual)); }
+        svg.append('text').attr('x', x(m) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', PLAN_M.includes(m) ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(m));
+        svg.append('rect').attr('x', x(m) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
+          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(m), [].concat(u ? [[B.peri, 'Upside: to create', `${fmt.n(Math.ceil(u.created_needed))} (${fmt.usd(u.created_value_needed)})`], [B.peri, 'Upside: wins from pipeline', fmt.n(u.pipeline_wins)]] : [])
+            .concat(bs ? [[B.amber, 'Base: to create', `${fmt.n(Math.ceil(bs.created_needed))} (${fmt.usd(bs.created_value_needed)})`], [B.amber, 'Base: wins from pipeline', fmt.n(bs.pipeline_wins)]] : [])
+            .concat(a ? [[B.fg, 'Created', fmt.n(a.created_actual) + (a.to_date ? ' to date' : '')], [B.fg, 'Won', fmt.n(a.won_actual) + (a.to_date ? ' to date' : '')]] : [])))
+          .on('mouseleave', () => tip.hide());
+      });
+      const head = ['Month', 'New-customer MRR from pipeline (Upside)', 'Named deals', 'Wins from pipeline (Upside)', 'Opportunities to create (Upside)', 'Pipeline value to create (Upside)', 'Wins from pipeline (Base)', 'Opportunities to create (Base)', 'Pipeline value to create (Base)', 'Created'];
+      const body2 = PLAN_M.map((m) => { const u = nd('Upside', m), bs = nd('Base', m), a = ac(m);
+        return [fmt.monthLong(m), fmt.usdFull(u.pipeline_new_mrr), u.named_wins ? `${u.named_wins} (${fmt.usd(u.named_new_mrr)})` : '', fmt.n(u.pipeline_wins), fmt.n(Math.ceil(u.created_needed)), fmt.usdFull(u.created_value_needed),
+          fmt.n(bs.pipeline_wins), fmt.n(Math.ceil(bs.created_needed)), fmt.usdFull(bs.created_value_needed), a ? fmt.n(a.created_actual) + (a.to_date ? ' to date' : '') : '']; });
+      const tot = (cs, f) => d3.sum(PLAN_M, (m) => nd(cs, m)[f]);
+      body2.push(['Total', '', '', fmt.n(tot('Upside', 'pipeline_wins')), fmt.n(Math.ceil(tot('Upside', 'created_needed'))), fmt.usdFull(tot('Upside', 'created_value_needed')), fmt.n(tot('Base', 'pipeline_wins')), fmt.n(Math.ceil(tot('Base', 'created_needed'))), fmt.usdFull(tot('Base', 'created_value_needed')), '']);
+      body2.push(['Basis', `Win rate ${fmt.rate(b.win_rate)} (${b.won} won, ${b.lost} lost since Aug 1)`, '', `Median ${Math.round(b.cycle_days)} days to close`, `${fmt.rate(b.prior_month_share)} created the month before`, `${fmt.usd(b.avg_created_value)} average opportunity`, `${fmt.usd(b.avg_won_value)} average won deal`, '', `${fmt.n(b.open_deals)} open, ${fmt.usd(b.open_value)}`, '']);
+      if (!opt || !opt.export) htmlTable(el, head, body2, (r) => r[0] === 'Basis' || r[0] === 'Total');
+      { const tw = el.querySelector(':scope > .ub-tablewrap'); if (tw) el.appendChild(tw); }
+      return { columns: head, rows: body2 };
+    },
+    note() {
+      const N = rows('pipeline_needed'); if (!N) return '';
+      const b = pick(N, (r) => r.kind === 'basis'), s = (cs, f) => d3.sum(N.filter((r) => r.kind === 'month' && r.case === cs), (r) => +r[f]);
+      const a = N.filter((r) => r.kind === 'actual' && !r.to_date), avgA = d3.mean(a, (r) => +r.created_actual);
+      return `All new business, both channels: the Upside case needs about ${fmt.n(Math.round(s('Upside', 'created_needed') / 6))} new opportunities a month (${fmt.usd(s('Upside', 'created_value_needed'))} of pipeline over six months) and the Base case about ${fmt.n(Math.round(s('Base', 'created_needed') / 6))} (${fmt.usd(s('Base', 'created_value_needed'))}), against ${fmt.n(Math.round(avgA))} a month created in August and September. That assumes the ${fmt.rate(b.win_rate)} win rate and ${fmt.usd(b.avg_created_value)} average opportunity since August 1. Liberty is a named deal, not pipeline to find.`;
+    },
+  };
+
   // ---------- tables
   function htmlTable(el, head, body2, strong) {
     let wrapEl = el.querySelector(':scope > .ub-tablewrap');
@@ -1735,8 +2063,13 @@
     if (kind === 'trend') { const k = (raw('kpi') || []).map((r) => r.month).filter(TREND); return `Monthly, ${fmt.monthLong(k[0] || s.win)} to ${fmt.monthLong(k[k.length - 1] || s.win)} · highlighted: ${WIN_LABEL[s.win]}`; }
     if (kind === 'plan' || kind === 'planlive') { const T = rows(id('plan_targets')), m = planMonth();
       return `${T ? caseOf(T) : 'Selected'} case targets, October 2026 to March 2027 · ${paceOf(m) ? fmt.monthLong(m) + ' to date' : fmt.monthLong(m)}${kind === 'planlive' ? (state.data === 'frozen' ? ' · pipeline as of the board snapshot' : ' · pipeline live') : ''}`; }
+    if (kind === 'finq') { const F = ST(); return F ? `${STMT[state.stmt]} · actual vs 2026 budget · last closed month ${fmt.monthLong(F.close)}` : ''; }
+    if (kind === 'finytd') { const F = ST(); return F ? `Actuals through ${fmt.monthLong(F.close)}, then the Upside case` : ''; }
     if (kind === 'finpath') { const f = FIN(); return f ? `Actuals through ${fmt.monthLong(f.close_month)}, then the ${f.fcase} case · (B) 2026 budget` : ''; }
     if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
+    if (kind === 'mrrwf') return `Monthly, April 2026 to March 2027 · actuals through September (KPI sheet), then the ${state.wfcase} case (CFO.ai), with the ${state.wfcase === 'Upside' ? 'Base' : 'Upside'} case's ending MRR dashed`;
+    if (kind === 'pipewf') { const P = rows('pipeline_waterfall'); const q = P ? pwSel(pwRows(P)) : []; return q.length ? `Monthly, ${fmt.monthLong(q[0].month)} to ${fmt.monthLong(q[q.length - 1].month)} (closed months in the date range) · rebuilt from HubSpot deal history` : 'Rebuilt from HubSpot deal history'; }
+    if (kind === 'pipeneed') return 'Base and Upside cases, October 2026 to March 2027 · all new business, conversion since August 1, 2026';
     if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
     return '';
   }
@@ -1754,7 +2087,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-pwblock', 'pwblock');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;
