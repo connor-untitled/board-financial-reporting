@@ -241,3 +241,9 @@ drip of restatements:
    point its dataset at the new url; set `updated`.
 5. For a board meeting, re-run the `sql/` queries and save them as the
    `*_frozen` snapshot datasets so every reader sees the same numbers.
+
+## Churn allowance, budget view and forecast bridge (October 16, 2026)
+
+- **Loss allowance cut.** CFO.ai's channel baselines carry `Target Loss Allowance Reduction` (25% for every channel). The confirmed churn, billing lapse and contraction allowances in "Monthly sales & retention targets by channel" multiply by `(1 - reduction)`, so required new MRR, wins and pipeline fall with it. Over October to March this lowers Upside new MRR needed from $88.1K to $75.9K and Base from $75.0K to $63.7K. `plan_targets_base`, `plan_targets_frozen`, `mrr_waterfall` and `pipeline_needed` were rebuilt from it; the Base targets match the live model after the case was set to Base.
+- **Financial review chart (c-fin-path).** Shows the 2026 budget for every month as wide light bars with actuals layered as narrow solid bars. No forecast.
+- **MRR bridge (c-bridge).** The subtitle shows only the selected window (no "vs"), Beginning and Ending show their month-end dates, and a View selector switches between Actual (date range), Base forecast and Upside forecast (September 30, 2026 to March 31, 2027). The forecast views use `mrr_waterfall` for subscription steps and, for all recurring revenue, the consumption and DSP revenue each case carries in that dataset (CFO.ai Forecast P&L).
