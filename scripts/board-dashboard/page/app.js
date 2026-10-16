@@ -664,7 +664,7 @@
         if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(0) - 6).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', 9).attr('fill', B.soft).text(q.resellers);
         if (i % every === 0 || on || i === data.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').attr('font-size', 11).text(q.month === S().openMonth ? fmt.month(q.month).slice(0, 3) + '*' : fmt.month(q.month));
         svg.append('rect').attr('class', 'ub-hit').attr('x', x(q.month)).attr('width', bw).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent')
-          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients (consumption-priced resellers)', fmt.n(q.end_clients)], [null, 'Consumption-priced resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed'], [null, 'Source', q.src === 'Sheet' ? 'Wins tab as published' : 'Metabase']])).on('mouseleave', () => tip.hide());
+          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients (consumption-priced resellers)', fmt.n(q.end_clients)], [null, 'Consumption-priced resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed']])).on('mouseleave', () => tip.hide());
       });
       const pts = data.filter((q) => q.consumption != null);
       svg.append('path').attr('d', d3.line().x((q) => x(q.month) + bw / 2).y((q) => y2(q.consumption))(pts)).attr('fill', 'none').attr('stroke', B.mint).attr('stroke-width', 2);
@@ -675,13 +675,13 @@
       const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
       callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === S().openMonth ? ', month to date' : ''}`, { lift: 22 });
       legend(el, [[B.deep, 'End clients of consumption-priced resellers (10+ resolutions in the month)'], [B.soft, 'Consumption-priced resellers with active clients (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
-      return { columns: ['Month', 'Reseller end clients', 'Resellers with active clients', 'Consumption revenue', 'Source'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '', q.src === 'Sheet' ? 'Wins tab' : 'Metabase']) };
+      return { columns: ['Month', 'End clients (consumption-priced resellers)', 'Consumption-priced resellers with active clients', 'Consumption revenue'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '']) };
     },
     note() {
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth), c = pick(ec, (x) => x.month === s.ecComp);
       if (!e || !c) return '';
-      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Counts are monthly and cover only resellers on the consumption pricing model (those in the reseller threshold sheet, from their first consumption month); an end client counts in a month with 10 or more resolutions. Months before September 2025 come from the Wins tab as published.`;
+      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Counts are monthly and cover only resellers on the consumption pricing model; an end client counts in a month with 10 or more resolutions.`;
     },
   };
 
