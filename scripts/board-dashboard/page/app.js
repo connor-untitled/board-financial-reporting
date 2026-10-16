@@ -1212,16 +1212,16 @@
       const d = need(el, this.data()); if (!d) return null;
       const tb = card('c-plan-july').querySelector('tbody');
       const sg = (v) => (v == null ? '—' : fmt.usdFull(v));
-      const cells = (x) => [fmt.month(x.month), x.status, sg(x.deck_revenue), sg(x.budget_revenue), sg(x.base_revenue), sg(x.upside_revenue), sg(x.base_revenue - x.deck_revenue), sg(x.deck_ebitda), sg(x.base_ebitda), sg(x.deck_cash), sg(x.base_cash)];
-      tb.replaceChildren(...d.july_forecast.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.month; cells(x).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 6 && x.base_revenue < x.deck_revenue) td.className = 'ub-neg'; if (i === 10 && x.base_cash < 0) td.className = 'ub-neg'; tr.appendChild(td); }); return tr; }));
-      return { columns: ['Month', 'Status', 'Revenue: July deck forecast', 'Revenue: budget', 'Revenue: actual or Base', 'Revenue: actual or Upside', 'Base vs July deck', 'EBITDA: July deck', 'EBITDA: actual or Base', 'Cash: July deck', 'Cash: actual or Base'], rows: d.july_forecast.map(cells) };
+      const cells = (x) => [fmt.month(x.month), x.status, sg(x.deck_revenue), sg(x.budget_revenue), sg(x.upside_revenue), sg(x.upside_revenue - x.deck_revenue), sg(x.deck_ebitda), sg(x.upside_ebitda), sg(x.deck_cash), sg(x.upside_cash)];
+      tb.replaceChildren(...d.july_forecast.map((x) => { const tr = document.createElement('tr'); tr.dataset.key = x.month; cells(x).forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i === 5 && x.upside_revenue < x.deck_revenue) td.className = 'ub-neg'; if (i === 9 && x.upside_cash < 0) td.className = 'ub-neg'; tr.appendChild(td); }); return tr; }));
+      return { columns: ['Month', 'Status', 'Revenue: July deck forecast', 'Revenue: budget', 'Revenue: actual or Upside', 'Upside vs July deck', 'EBITDA: July deck', 'EBITDA: actual or Upside', 'Cash: July deck', 'Cash: actual or Upside'], rows: d.july_forecast.map(cells) };
     },
     note() {
       const f = rows('july_forecast'); if (!f) return '';
       const q3 = f.filter((x) => x.month <= '2026-09'), dec = f[f.length - 1];
-      const gap = d3.sum(q3, (x) => x.base_revenue - x.deck_revenue), egap = d3.sum(q3, (x) => x.base_ebitda - x.deck_ebitda);
-      const neg = f.find((x) => x.base_cash < 0);
-      return `Q3 revenue came in ${fmt.usd(-gap)} under the July deck forecast and EBITDA ${fmt.usd(-egap)} worse. The deck had December at ${fmt.usd(dec.deck_revenue)} revenue and ${fmt.usd(dec.deck_ebitda)} EBITDA; CFO.ai now has ${fmt.usd(dec.base_revenue)} (Base) to ${fmt.usd(dec.upside_revenue)} (Upside) and ${fmt.usd(dec.base_ebitda)} EBITDA in Base.${neg ? ` Base cash goes below zero in ${fmt.monthLong(neg.month)}.` : ''}`;
+      const gap = d3.sum(q3, (x) => x.upside_revenue - x.deck_revenue), egap = d3.sum(q3, (x) => x.upside_ebitda - x.deck_ebitda);
+      const neg = f.find((x) => x.upside_cash < 0);
+      return `Q3 revenue came in ${fmt.usd(-gap)} under the July deck forecast and EBITDA ${fmt.usd(-egap)} worse. The deck had December at ${fmt.usd(dec.deck_revenue)} revenue and ${fmt.usd(dec.deck_ebitda)} EBITDA; the current Upside case has ${fmt.usd(dec.upside_revenue)} revenue and ${fmt.usd(dec.upside_ebitda)} EBITDA.${neg ? ` Upside cash goes below zero in ${fmt.monthLong(neg.month)}.` : ''}`;
     },
   };
 
@@ -1594,7 +1594,7 @@
     'c-fin-sum': () => { const f = FIN(); if (!f) return ''; const e = f.lines.find((x) => x.section === 'summary' && x.line === 'EBITDA'); const v = e.ytd_actual - e.ytd_budget;
       return `EBITDA ${fmt.usd(e.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} ${v < 0 ? 'behind' : 'ahead of'} budget`; },
     'c-plan-july': () => { const f = rows('july_forecast'); if (!f) return ''; const dec = f[f.length - 1];
-      return `December revenue now ${fmt.usd(dec.base_revenue)} to ${fmt.usd(dec.upside_revenue)} against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
+      return `December revenue now ${fmt.usd(dec.upside_revenue)} in the Upside case against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
     'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
       const max = d3.max(ec, (x) => +x.end_clients); const mtd = e.month === s.openMonth ? ', month to date' : '';

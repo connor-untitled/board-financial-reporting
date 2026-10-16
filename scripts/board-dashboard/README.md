@@ -127,6 +127,8 @@ The Financial review tab mirrors the deck's path-to-break-even and budget varian
 - CFO.ai's EBITDA includes other income, so revenue minus expenses does not equal EBITDA exactly.
 - Re-read after each close and update `close_month`. The tab follows whatever close the file holds.
 - The "Against the July 2026 board forecast" card sits on this tab.
+- From the September close, actuals are read from the Cash Forecast Q4'26-Q1'27 scenario: it was closed through September while Main Scenario and Budget 2026 still showed an August last close. Its January to August figures match Main Scenario to the cent. Run `fin_statements/build.py 2026-09` after saving the reads to `.board-dashboard/cfo/sep/`.
+- The July 2026 board forecast card shows actuals and the Upside case only. The model has a case selector, so Base can only be read by switching it, which is a change to CFO.ai.
 
 ### Financial statements (quarter vs budget, year to date and forecast)
 
