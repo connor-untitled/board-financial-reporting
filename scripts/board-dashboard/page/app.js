@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -360,39 +360,61 @@
     },
   };
 
+  // All recurring revenue: subscription and services MRR plus the month's consumption and DSP revenue (the KPI sheet's total MRR).
+  // Usage has no contract to expand or cancel, so each usage line shows only its net change from the month before the period to its last month.
+  function rrUsage() {
+    const k = rows('kpi'); if (!k) return null;
+    const ms = (S().monthW || {})[S().win] || WIN_MONTHS[S().win], rs = k.filter((x) => ms.includes(x.month)); if (!rs.length) return null;
+    const p = pick(k, (x) => x.month === addMonths(rs[0].month + '-01', -1).slice(0, 7)), z = rs[rs.length - 1]; if (!p) return null;
+    return { prevMonth: p.month, lastMonth: z.month, cons0: +p.consumption_kpi, cons1: +z.consumption_kpi, dsp0: +p.dsp_kpi, dsp1: +z.dsp_kpi,
+      cons: +z.consumption_kpi - +p.consumption_kpi, dsp: +z.dsp_kpi - +p.dsp_kpi, start: +p.consumption_kpi + +p.dsp_kpi, end: +z.blended_mrr };
+  }
+  const allRR = () => state.bscope === 'all';
   CARDS['c-bridge'] = {
-    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows'],
+    kind: 'close', src: ['kpi', 'stripe_churns', 'churn_reasons'], data: () => ['mrr_windows', 'kpi'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      $$('.ub-seg-channel button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.channel));
-      const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === state.channel);
-      const steps = [['Beginning', m.beginning, 'total'], ['New', m.new, 'up'], ['Expansion', m.expansion, 'up'], ['Reactivation', m.reactivation, 'up'],
+      const all = allRR(), ch = all ? 'Total' : state.channel;
+      $$('.ub-seg-bscope button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.bscope));
+      $$('.ub-seg-channel button').forEach((b) => { b.setAttribute('aria-pressed', b.dataset.v === ch); b.disabled = all && b.dataset.v !== 'Total'; });
+      const s = S(), m = winRows(d.mrr_windows, s.win, (r) => r.channel === ch), u = all ? rrUsage() : null;
+      if (all && !u) return null;
+      const steps = [['Beginning', m.beginning + (u ? u.start : 0), 'total'], ['New', m.new, 'up'], ['Expansion', m.expansion, 'up'], ['Reactivation', m.reactivation, 'up'],
         ['Contraction', -m.contraction, 'down'], ['Cancellation', -m.cancellation, 'down']];
       if (Math.abs(m.adjustment) > 0.5) steps.push(['Aug. rebase', m.adjustment, m.adjustment >= 0 ? 'up' : 'down']);
-      steps.push(['Ending', m.ending, 'total']);
-      const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h);
+      if (u) steps.push(['Consumption change', u.cons, 'usage'], ['DSP change', u.dsp, 'usage']);
+      steps.push(['Ending', u ? u.end : m.ending, 'total']);
+      if (u) legend(el, [[B.peri, 'Total MRR'], [B.mint, 'Subscription gains'], [B.bad, 'Subscription losses'], [B.sky, 'Usage revenue, net change']]);
+      const { w, h } = size(el, opt, 300), svg = svgFor(el, w, h), lh = u ? 44 : 30;
       let run = 0; const bars = steps.map(([label, v, kind]) => { const a = kind === 'total' ? 0 : run; const z = kind === 'total' ? v : run + v; run = kind === 'total' ? v : z; return { label, v, kind, a, z }; });
-      const y = d3.scaleLinear([0, d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - 30, 12]).nice();
+      const y = d3.scaleLinear([0, d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - lh, 12]).nice();
       const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usd(t)));
       const x = d3.scaleBand(bars.map((b) => b.label), [left + 4, w - 4]).padding(0.28);
       yAxis(svg, y, left, w - 4, fmt.usd);
       const tip = tooltip(el);
+      const ui = bars.findIndex((b) => b.kind === 'usage');
+      if (ui > 0) { const xd = x(bars[ui].label) - x.step() * x.paddingInner() / 2;
+        svg.append('line').attr('x1', xd).attr('x2', xd).attr('y1', 8).attr('y2', h - lh + 4).attr('stroke', B.line).attr('stroke-dasharray', '3 3');
+        svg.append('text').attr('x', xd - 6).attr('y', 18).attr('text-anchor', 'end').attr('class', 'ub-tick').text('Subscription and services MRR');
+        svg.append('text').attr('x', xd + 6).attr('y', 18).attr('class', 'ub-tick').text('Usage revenue'); }
       bars.forEach((b, i) => {
-        const c = b.kind === 'total' ? B.peri : b.kind === 'up' ? B.mint : B.bad;
+        const c = b.kind === 'total' ? B.peri : b.kind === 'usage' ? B.sky : b.kind === 'up' ? B.mint : B.bad;
         svg.append('rect').attr('x', x(b.label)).attr('width', x.bandwidth()).attr('y', y(Math.max(b.a, b.z))).attr('height', Math.max(1, Math.abs(y(b.a) - y(b.z)))).attr('rx', 3).attr('fill', c)
-          .on('mousemove', (ev) => tip.show(ev, b.label, [[c, state.channel, fmt.usdFull(b.v)]])).on('mouseleave', () => tip.hide());
+          .on('mousemove', (ev) => tip.show(ev, b.label, [[c, u ? 'All recurring revenue' : ch, fmt.usdFull(b.v)]].concat(b.label === 'Consumption change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.cons0)} → ${fmt.usdFull(u.cons1)}`]] : b.label === 'DSP change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.dsp0)} → ${fmt.usdFull(u.dsp1)}`]] : []))).on('mouseleave', () => tip.hide());
         if (i < bars.length - 1) svg.append('line').attr('x1', x(b.label) + x.bandwidth()).attr('x2', x(bars[i + 1].label)).attr('y1', y(b.z)).attr('y2', y(b.z)).attr('class', 'ub-ref');
         svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', y(Math.max(b.a, b.z)) - 6).attr('text-anchor', 'middle').attr('class', 'ub-val').text(b.kind === 'total' ? fmt.usd(b.v) : fmt.signedUsd(b.v));
-        svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 10).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(x.bandwidth() < 58 ? b.label.slice(0, 6) : b.label);
+        if (u) b.label.split(' ').forEach((wd, j) => svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 26 + j * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(wd));
+        else svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - 10).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(x.bandwidth() < 58 ? b.label.slice(0, 6) : b.label);
       });
-      return { columns: ['Step', state.channel + ' MRR'], rows: bars.map((b) => [b.label, b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
+      return { columns: ['Step', u ? 'All recurring revenue (total MRR)' : ch + ' MRR'], rows: bars.map((b) => [b.label, b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
     },
     note() {
       const mw = rows('mrr_windows'), log = rows(CH()); if (!mw || !log) return '';
-      const s = S(), m = winRows(mw, s.win, (r) => r.channel === state.channel);
-      let t = `${state.channel === 'Total' ? 'Subscription and services' : state.channel} MRR ${fmt.signedUsd(m.net_new)} net: new ${fmt.usd(m.new)}, expansion ${fmt.usd(m.expansion)}, cancellations ${fmt.usd(m.cancellation)}.`;
+      const s = S(), ch = allRR() ? 'Total' : state.channel, m = winRows(mw, s.win, (r) => r.channel === ch), u = allRR() ? rrUsage() : null;
+      let t = `${ch === 'Total' ? 'Subscription and services' : ch} MRR ${fmt.signedUsd(m.net_new)} net: new ${fmt.usd(m.new)}, expansion ${fmt.usd(m.expansion)}, cancellations ${fmt.usd(m.cancellation)}.`;
+      if (u) t = `All recurring revenue (total MRR, as on the KPI sheet) ${fmt.signedUsd(u.end - m.beginning - u.start)} to ${fmt.usd(u.end)}: subscription and services ${fmt.signedUsd(m.net_new)}, consumption ${fmt.signedUsd(u.cons)} and DSP ${fmt.signedUsd(u.dsp)}. Usage shows only its net change from ${fmt.monthLong(u.prevMonth)} to ${fmt.monthLong(u.lastMonth)}; it has no contracts to expand or cancel.`;
       const months = WIN_MONTHS[s.win];
-      const top = topChurns(log.filter((x) => state.channel === 'Total' || x.channel === state.channel), months, 3);
+      const top = topChurns(log.filter((x) => ch === 'Total' || x.channel === ch), months, 3);
       if (top) t += ` Largest cancellations: ${top}.`;
       if (Math.abs(m.adjustment) > 0.5) t += ` The rebase bar is the one-time August 2026 true-up of the sheet to Stripe, as published.`;
       return t;
@@ -1557,8 +1579,10 @@
     'c-revdetail': () => { const rw = rows('revenue_windows'); if (!rw) return ''; const c = winRows(rw, S().win); return `${fmt.usd(c.subscription)} subscription and ${fmt.usd(c.usage)} usage revenue in ${WIN_LABEL[S().win]}`; },
     'c-mrrtrend': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), rc = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
       return `Reseller licenses ${up(r.ending, rc.ending)} ${fmt.pct(chg(r.ending, rc.ending)).slice(1)} to ${fmt.usd(r.ending)}`; },
-    'c-bridge': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const m = winRows(mw, S().win, (r) => r.channel === state.channel);
-      return `${state.channel === 'Total' ? '' : state.channel + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
+    'c-bridge': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const ch = allRR() ? 'Total' : state.channel, m = winRows(mw, S().win, (r) => r.channel === ch);
+      const u = allRR() ? rrUsage() : null;
+      if (u) return `Total MRR ${fmt.signedUsd(u.end - m.beginning - u.start)}: subscription ${fmt.signedUsd(m.net_new)}, usage ${fmt.signedUsd(u.cons + u.dsp)}`;
+      return `${ch === 'Total' ? '' : ch + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
     'c-salestiles': () => { const bt = rows('booking_totals'); if (!bt) return ''; const s = S(), b = winRows(bt, s.book), c = winRows(bt, s.bookComp);
       return `Software bookings ${up(b.tcv, c.tcv)} ${fmt.pct(chg(b.tcv, c.tcv)).slice(1)} to ${fmt.usd(b.tcv)}; average deal ${fmt.usd(b.avg_deal)}`; },
     'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const Y = S().end.slice(0, 4), sw = bk.filter((b) => b.category === 'Software' && b.date.startsWith(Y));
@@ -2063,7 +2087,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-pwblock', 'pwblock');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-pwblock', 'pwblock');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;

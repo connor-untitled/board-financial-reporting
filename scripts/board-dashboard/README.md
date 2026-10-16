@@ -88,6 +88,10 @@ each named new customer as one win.
   are the October 14 read (rechecked October 16) exactly; October matches the Upside read and March differs by the $18,100 of
   additions. The MRR waterfall switches between cases with the other case's ending MRR dashed, and "All new MRR against the
   plan" shows the Base target dashed beside the Upside target.
+- **MRR bridge, all recurring revenue** (Revenue tab, `c-bridge` Scope toggle): Total MRR as on the KPI sheet (subscription and
+  services MRR plus the month's consumption and DSP revenue). Subscription keeps its movements; consumption and DSP are one
+  step each, their net change from the month before the period to its last month, since usage has no contract to expand or
+  cancel. Total only: usage is not split by channel.
 - **Pipeline waterfall by month** (Sales tab, `pipeline_waterfall`, `sql/pipeline_waterfall.sql`), for the closed months in
   the date range (the last three if none): rebuilt from HubSpot's
   pipeline, stage and amount history, so every month foots. The KPI sheet's own pipeline movement columns do not foot before
