@@ -63,11 +63,33 @@ targets by channel", for the case selected in its Case toggle).
   month and channel) with the open-pipeline query. Win rate is won over won
   plus lost for deals closed since August 1, 2026, when the demo-led motion
   started.
-- **Board snapshot:** `plan_targets_frozen` and `opps_channel_frozen` as of
-  October 14, 2026 (Upside case). Retake both with the other `*_frozen` sets
+- **Board snapshot:** `plan_targets_frozen` (Upside case, re-read October 16, 2026 after the Upside additions) and
+  `opps_channel_frozen` (October 16, 2026). Retake both with the other `*_frozen` sets
   before each board meeting.
 - CFO.ai updates actuals on a last-close basis, usually the 15th to 20th of the
   following month, so its view of a month lags this tab's.
+
+### Upside additions and the three planning views (October 16, 2026)
+
+After investor feedback, the case that was Upside became Base (6.9% subscription and 4.2% consumption monthly growth), and
+the Upside case adds named deals and reseller account adds on top of that growth. They are inputs on CFO.ai's
+"Upside Additions" page ("Upside additions (inputs)": one row per addition with revenue line, channel, movement, start month
+and monthly amount; reseller accounts read the single `Upside Reseller Account Add MRR` input, $350). "Upside additions by month"
+turns them into monthly amounts, switched on by `Case Includes Upside Additions` (1 for Upside only). The revenue lines stack
+them flat on the growth rate: `(prior month - prior additions) x (1 + growth) + additions`. DSP additions are our 20% take;
+gross billings and the Prospect Desk pass-through follow from `DSP Margin %`. The targets table splits new-customer MRR into
+named (`Target Named Upside New Customer MRR`) and pipeline-sourced (`Target Pipeline-Sourced New Customer MRR`), and counts
+each named new customer as one win.
+
+- **Subscription MRR waterfall** (Plan tab, `mrr_waterfall`): KPI-sheet movements April to September, then the Upside case
+  from the targets table, with the named deals and named expansion shown apart. October opens at the model's September
+  baseline, $100 below the KPI sheet (shown as the baseline step).
+- **Pipeline waterfall by month** (Sales tab, `pipeline_waterfall`, `sql/pipeline_waterfall.sql`): rebuilt from HubSpot's
+  pipeline, stage and amount history, so every month foots. The KPI sheet's own pipeline movement columns do not foot before
+  August 2026 (and September's value decrease equals its lost value), so this view does not use them.
+- **Pipeline creation needed** (Plan tab, `pipeline_needed`): pipeline-sourced wins each month divided by the channel win rate
+  since August 1, with the share created the month before set by the median days to close, and valued at the average
+  opportunity created since August 1. March's following month is assumed equal to March.
 
 ### Board baseline: the July 21, 2026 deck
 
