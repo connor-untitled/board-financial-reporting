@@ -118,7 +118,7 @@ forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
 
 ## Financial review
 
-The Financial review tab mirrors the deck's path-to-break-even and budget variance slides. Its one dataset, `fin_review`, is read by hand from CFO.ai (read only): "P&L - This Month vs Budget" and "P&L - YTD vs Budget" with comparison Budget 2026, and "P&L - TTM" for the monthly series, all from Main Scenario.
+The Financial review tab mirrors the deck's path-to-break-even and budget variance slides. Its one dataset, `fin_review`, is flat rows (`kind` meta, month or line; the dashboard runtime does not pass nested lists through) read by hand from CFO.ai (read only): "P&L - This Month vs Budget" and "P&L - YTD vs Budget" with comparison Budget 2026, and "P&L - TTM" for the monthly series, all from Main Scenario.
 
 - Variance is actual minus budget (CFO.ai's delta column is budget minus actual). Red marks an unfavorable variance: revenue under budget, expenses over.
 - Expenses are COGS plus operating expenses; CFO.ai's "Total Expenses" is opex only.

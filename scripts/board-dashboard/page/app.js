@@ -1226,7 +1226,17 @@
   };
 
   // ---------- Financial review: the last closed month against the 2026 budget (deck slides on the path to break even and budget variance)
-  const FIN = () => { const f = rows('fin_review'); return f && f[0]; };
+  // fin_review is flat rows (kind meta, month or line); cells can arrive as text, so numbers are converted here.
+  const finOf = (r) => {
+    if (!r || !r.length) return null;
+    const num = (v) => (v == null || v === '' ? null : +v), meta = r.find((x) => x.kind === 'meta'); if (!meta) return null;
+    const MK = ['revenue', 'cogs', 'opex', 'ebitda', 'expenses', 'other_income', 'budget_revenue', 'budget_cogs', 'budget_opex', 'budget_ebitda', 'budget_expenses'];
+    const LK = ['month_actual', 'month_budget', 'ytd_actual', 'ytd_budget'];
+    return { close_month: String(meta.close_month).slice(0, 7), other_income_ytd: num(meta.other_income_ytd), other_income_ytd_budget: num(meta.other_income_ytd_budget),
+      months: r.filter((x) => x.kind === 'month').map((x) => { const o = { month: String(x.month).slice(0, 7) }; MK.forEach((k) => { o[k] = num(x[k]); }); return o; }).sort((a, z) => d3.ascending(a.month, z.month)),
+      lines: r.filter((x) => x.kind === 'line').map((x) => { const o = { section: x.section, line: x.line, better: x.better }; LK.forEach((k) => { o[k] = num(x[k]) || 0; }); return o; }) };
+  };
+  const FIN = () => finOf(rows('fin_review'));
   const acct = (v) => (v == null ? '—' : Math.round(v) < 0 ? `($${d3.format(',.0f')(-v)})` : '$' + d3.format(',.0f')(Math.abs(v)));
   const finBad = (l, v) => (l.better === 'exp' ? v > 0 : v < 0);
   function finTable(sec) {
@@ -1234,7 +1244,7 @@
       kind: 'fin', src: ['fin_review'], data: () => ['fin_review'],
       draw(el, opt) {
         const d = need(el, this.data()); if (!d) return null;
-        const f = d.fin_review[0], mo = fmt.month(f.close_month), ls = f.lines.filter((l) => l.section === sec);
+        const f = finOf(d.fin_review); if (!f) return null; const mo = fmt.month(f.close_month), ls = f.lines.filter((l) => l.section === sec);
         const head = ['Line', `${mo} actual`, `${mo} budget`, 'Month vs budget', 'YTD actual', 'YTD budget', 'YTD vs budget'];
         const vals = ls.map((l) => [l.month_actual, l.month_budget, l.month_actual - l.month_budget, l.ytd_actual, l.ytd_budget, l.ytd_actual - l.ytd_budget]);
         const body2 = ls.map((l, i) => [l.line].concat(vals[i].map(acct)));
@@ -1264,7 +1274,7 @@
     kind: 'fin', src: ['fin_review'], data: () => ['fin_review'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const f = d.fin_review[0], M = f.months, act = (m) => m.revenue != null;
+      const f = finOf(d.fin_review); if (!f) return null; const M = f.months, act = (m) => m.revenue != null;
       const RV = B.sky, EX = B.peri, EB = B.amber;
       legend(el, [[RV, 'Revenue'], [EX, 'Expenses (COGS + opex)'], [EB, 'EBITDA, actual'], [B.muted, 'Budget (lighter bars and dashed line)']]);
       const { w, h } = size(el, opt, (opt && opt.height) || 340);
@@ -1737,7 +1747,7 @@
     const tk = $('.ub-takeaway'), hn = CARDS['c-headline'].note();
     tk.classList.toggle('dash-skeleton', !hn); tk.textContent = hn || '—';
     const page = document.getElementById(state.tab);
-    page.querySelectorAll('.ub-card').forEach((c) => {
+    const drawCard = (c) => {
       const def = CARDS[c.id]; if (!def) return;
       const tt = c.querySelector('.ub-card-title'); if (!tt.dataset.name) tt.dataset.name = tt.textContent;
       const per = c.querySelector('.ub-card-period'); if (per && def.kind !== 'static') per.textContent = periodText(def.kind);
@@ -1750,7 +1760,9 @@
         ch.textContent = n; ch.hidden = !n;
       }
       if (TAKE[c.id]) { let t = ''; try { t = TAKE[c.id](); } catch (e) { t = ''; } tt.textContent = t || tt.dataset.name; }
-    });
+    };
+    // A card that throws must not leave the rest of the page blank; the error still reaches the page's error log.
+    page.querySelectorAll('.ub-card').forEach((c) => { try { drawCard(c); } catch (e) { setTimeout(() => { throw e; }); } });
   }
   dash.onData(render);
   if (window.UB_FONT_LOADED) window.UB_FONT_LOADED.then((ok) => { if (ok) render(); });
