@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub', bview: 'actual', pwview: 'actual' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub', bview: 'actual', pwview: 'actual', ytdcase: 'Upside' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -1573,14 +1573,15 @@
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
       const F = stOf(d.fin_statements); if (!F) return null;
-      const R = F.rowsOf('ytd', 'ytd'), ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`);
+      $$('.ub-seg-ytdcase button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.ytdcase));
+      const R = F.rowsOf('ytd', 'ytd'), ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`), cb = state.ytdcase.toLowerCase();
       const A = ms.filter((m) => m <= F.close), U = ms.filter((m) => m > F.close);
       const lab = (m) => fmt.month(m).replace(' ', " '");
-      const groups = [{ label: `Actual (last close ${fmt.month(F.close).split(' ')[0]})`, cols: A.map(lab) }].concat(U.length ? [{ label: 'Upside case forecast', cols: U.map(lab) }] : []);
+      const groups = [{ label: `Actual (last close ${fmt.month(F.close).split(' ')[0]})`, cols: A.map(lab) }].concat(U.length ? [{ label: `${state.ytdcase} case forecast`, cols: U.map(lab) }] : []);
       const grid = [], table = [];
       R.forEach((r) => {
         if (r.style === 'band') { grid.push({ band: r.line }); return; }
-        const cells = [{ t: r.line }].concat(ms.map((m, i) => { const v = r.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')]; return { t: r.style === 'pct' ? pf(v) : zf(v), first: i === A.length, tone: !(r.style === 'pct') && v != null && v < -0.5 && /Closing Balance/.test(r.line) ? 'bad' : null }; }));
+        const cells = [{ t: r.line }].concat(ms.map((m, i) => { const v = r.vals[m + '|' + (m <= F.close ? 'actual' : cb)]; return { t: r.style === 'pct' ? pf(v) : zf(v), first: i === A.length, tone: !(r.style === 'pct') && v != null && v < -0.5 && /Closing Balance/.test(r.line) ? 'bad' : null }; }));
         grid.push({ style: r.style, cells }); table.push(cells.map((c) => c.t));
       });
       stmtGrid(el, groups, grid, opt);
@@ -1589,8 +1590,8 @@
     note() {
       const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), g = (n) => R.find((r) => r.line === n);
       const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance');
-      const neg = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`).find((m) => m > F.close && cash.vals[m + '|upside'] < 0);
-      return `December, Upside case: revenue ${fmt.usd(rev.vals['2026-12|upside'])}, EBITDA ${fmt.usd(eb.vals['2026-12|upside'])}, cash ${fmt.usd(cash.vals['2026-12|upside'])}.${neg ? ` Cash turns negative in ${fmt.monthLong(neg).split(' ')[0]} before any new financing.` : ''}`;
+      const cs = state.ytdcase, cb = cs.toLowerCase(), neg = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`).find((m) => m > F.close && cash.vals[m + '|' + cb] < 0);
+      return `December, ${cs} case: revenue ${fmt.usd(rev.vals['2026-12|' + cb])}, EBITDA ${fmt.usd(eb.vals['2026-12|' + cb])}, cash ${fmt.usd(cash.vals['2026-12|' + cb])}.${neg ? ` Cash turns negative in ${fmt.monthLong(neg).split(' ')[0]} before any new financing.` : ''}`;
     },
   };
 
@@ -1669,8 +1670,8 @@
       if (state.stmt === 'pl') { const c = g('Net Income'); return `Q3${to} net income ${fmt.usd(s(c, 'actual'))}, ${gap(s(c, 'actual'), s(c, 'budget'), true)}`; }
       const e = g('EBITDA'); return `Q3${to} EBITDA ${fmt.usd(s(e, 'actual'))}, ${gap(s(e, 'actual'), s(e, 'budget'), true)}`; },
     'c-fin-ytd': () => { const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), rv = R.find((r) => r.line === 'Total Revenue');
-      const ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`), tot = d3.sum(ms, (m) => rv.vals[m + '|' + (m <= F.close ? 'actual' : 'upside')] || 0);
-      return `2026 revenue comes to ${fmt.usd(tot)} in the Upside case, with actuals through ${fmt.monthLong(F.close).split(' ')[0]}`; },
+      const ms = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`), cs = state.ytdcase, tot = d3.sum(ms, (m) => rv.vals[m + '|' + (m <= F.close ? 'actual' : cs.toLowerCase())] || 0);
+      return `2026 revenue comes to ${fmt.usd(tot)} in the ${cs} case, with actuals through ${fmt.monthLong(F.close).split(' ')[0]}`; },
     'c-fin-rev': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'revenue' && x.line === 'Total Revenue'); const v = t.ytd_actual - t.ytd_budget;
       return `Revenue ${fmt.usd(t.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} (${d3.format('.1%')(Math.abs(v) / t.ytd_budget)}) ${v < 0 ? 'under' : 'over'} budget`; },
     'c-fin-exp': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'expenses' && x.line.startsWith('Total')); const v = t.ytd_actual - t.ytd_budget;
@@ -2155,7 +2156,7 @@
     if (kind === 'plan' || kind === 'planlive') { const T = rows(id('plan_targets')), m = planMonth();
       return `${T ? caseOf(T) : 'Selected'} case targets, October 2026 to March 2027 · ${paceOf(m) ? fmt.monthLong(m) + ' to date' : fmt.monthLong(m)}${kind === 'planlive' ? (state.data === 'frozen' ? ' · pipeline as of the board snapshot' : ' · pipeline live') : ''}`; }
     if (kind === 'finq') { const F = ST(); return F ? `${STMT[state.stmt]} · actual vs 2026 budget · last closed month ${fmt.monthLong(F.close)}` : ''; }
-    if (kind === 'finytd') { const F = ST(); return F ? `Actuals through ${fmt.monthLong(F.close)}, then the Upside case` : ''; }
+    if (kind === 'finytd') { const F = ST(); return F ? `Actuals through ${fmt.monthLong(F.close)}, then the ${state.ytdcase} case` : ''; }
     if (kind === 'finpath') { const f = FIN(); return f ? `January to December 2026 · actuals layered in through ${fmt.monthLong(f.close_month)}` : ''; }
     if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
     if (kind === 'mrrwf') return `Monthly, April 2026 to March 2027 · actuals through September (KPI sheet), then the ${state.wfcase} case (CFO.ai), with the ${state.wfcase === 'Upside' ? 'Base' : 'Upside'} case's ending MRR dashed`;
@@ -2179,7 +2180,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-bview', 'bview'); bind('.ub-seg-pwblock', 'pwblock'); bind('.ub-seg-pwview', 'pwview');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-bview', 'bview'); bind('.ub-seg-pwblock', 'pwblock'); bind('.ub-seg-pwview', 'pwview'); bind('.ub-seg-ytdcase', 'ytdcase');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;
