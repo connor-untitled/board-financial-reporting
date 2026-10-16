@@ -1489,7 +1489,7 @@
       const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
       const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance'), last = ms[ms.length - 1];
       const pend = ms.length < 3 ? ' September joins once its books close.' : '';
-      return `Actual against the 2026 budget; variance is actual minus budget, green favorable and red unfavorable. Switch statements above the table; Copy image copies the one showing. Quarter to date, revenue is ${fmt.usd(s(rev, 'actual'))} against ${fmt.usd(s(rev, 'budget'))} budgeted and EBITDA ${fmt.usd(s(eb, 'actual'))} against ${fmt.usd(s(eb, 'budget'))}; cash closed ${fmt.monthLong(last).split(' ')[0]} at ${fmt.usd(cash.vals[last + '|actual'])} against ${fmt.usd(cash.vals[last + '|budget'])} in the budget.${pend}`;
+      return `Actual against the 2026 budget; variance is actual minus budget, green favorable and red unfavorable. Switch statements above the table; Copy image copies the one showing. ${ms.length < 3 ? 'Quarter to date' : 'For the quarter'}, revenue is ${fmt.usd(s(rev, 'actual'))} against ${fmt.usd(s(rev, 'budget'))} budgeted and EBITDA ${fmt.usd(s(eb, 'actual'))} against ${fmt.usd(s(eb, 'budget'))}; cash closed ${fmt.monthLong(last).split(' ')[0]} at ${fmt.usd(cash.vals[last + '|actual'])} against ${fmt.usd(cash.vals[last + '|budget'])} in the budget.${pend}`;
     },
   };
 
