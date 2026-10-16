@@ -674,7 +674,7 @@
       });
       const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
       callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === S().openMonth ? ', month to date' : ''}`, { lift: 22 });
-      legend(el, [[B.deep, 'End clients of consumption-priced resellers (10+ resolutions in the month)'], [B.soft, 'Consumption-priced resellers with active clients (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
+      legend(el, [[B.deep, 'End clients of consumption-priced resellers (10+ resolutions in the month)'], [B.soft, 'Consumption-priced resellers with active clients (number at base)'], [B.mint, 'Consumption revenue from consumption-priced accounts (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
       return { columns: ['Month', 'End clients (consumption-priced resellers)', 'Consumption-priced resellers with active clients', 'Consumption revenue'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '']) };
     },
     note() {
