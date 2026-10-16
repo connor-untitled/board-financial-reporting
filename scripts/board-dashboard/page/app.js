@@ -3,7 +3,7 @@
   const { B, setTheme, fmt, spec, setRange, presetRange, PRESETS, openLabel, monthsIn, addMonths, monthStart, qStart, addDays, WIN_LABEL, WIN_MONTHS, size, svgFor, textW, ink, tooltip, yAxis, stackedBars, legend, tiles, copyImage, copyTable, wrap, callout } = window.UB;
   // The board version reads only the board snapshot: live queries run on the viewer's own Metabase and CFO.ai
   // access, which board members do not have. The live datasets and queries stay defined for internal use.
-  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub', bview: 'actual' };
+  const state = { theme: 'light', preset: 'last_q', start: null, end: null, cmp: 'prior', data: 'frozen', tab: 'overview', channel: 'Total', dim: 'channel', stmt: 'summary', wfch: 'Total', pwblock: 'Total', wfcase: 'Upside', bscope: 'sub', bview: 'actual', pwview: 'actual' };
   const LIVE = ['end_clients', 'mqls', 'pipeline_open', 'opps_split', 'plan_targets', 'opps_channel', 'churn_reasons', 'deck_pipeline'];
   // Churned customers: Stripe cancellations with HubSpot reasons, live or as of the board snapshot.
   const CH = () => (state.data === 'frozen' ? 'churns_frozen' : 'churns');
@@ -369,10 +369,44 @@
     return { prevMonth: p.month, lastMonth: z.month, cons0: +p.consumption_kpi, cons1: +z.consumption_kpi, dsp0: +p.dsp_kpi, dsp1: +z.dsp_kpi,
       cons: +z.consumption_kpi - +p.consumption_kpi, dsp: +z.dsp_kpi - +p.dsp_kpi, start: +p.consumption_kpi + +p.dsp_kpi, end: +z.blended_mrr };
   }
+  // A bridge (waterfall) from an opening total to a closing total, shared by the MRR and pipeline bridges.
+  // steps: [label, value, kind] with kind total | up | down | usage; the first usage step gets a divider when o.divider names its two sides.
+  function bridgeDraw(el, opt, steps, o) {
+    const col = Object.assign({ total: B.peri, up: B.mint, down: B.bad, usage: B.sky }, o.colors || {});
+    legend(el, o.legend);
+    const multi = o.multi, words = (l) => { if (!multi) return [l]; const out = []; l.split(' ').forEach((wd) => { const k = out.length - 1; if (k >= 0 && (out[k] + ' ' + wd).length <= 12) out[k] += ' ' + wd; else out.push(wd); }); return out; };
+    const nl = d3.max(steps, ([l, , k]) => words(l).length + (k === 'total' ? 1 : 0));
+    const { w, h } = size(el, opt, 300 + (nl - 1) * 13), svg = svgFor(el, w, h), lh = 18 + nl * 13;
+    let run = 0; const bars = steps.map(([label, v, kind]) => { const a = kind === 'total' ? 0 : run; const z = kind === 'total' ? v : run + v; run = kind === 'total' ? v : z; return { label, v, kind, a, z, sub: label === 'Beginning' ? o.d0 : label === 'Ending' ? o.d1 : null }; });
+    const y = d3.scaleLinear([Math.min(0, d3.min(bars, (b) => Math.min(b.a, b.z))), d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - lh, 12]).nice();
+    const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usd(t)));
+    const x = d3.scaleBand(bars.map((b) => b.label), [left + 4, w - 4]).padding(0.28);
+    yAxis(svg, y, left, w - 4, fmt.usd);
+    const tip = tooltip(el);
+    const ui = bars.findIndex((b) => b.kind === 'usage');
+    if (o.divider && ui > 0) { const xd = x(bars[ui].label) - x.step() * x.paddingInner() / 2;
+      svg.append('line').attr('x1', xd).attr('x2', xd).attr('y1', 8).attr('y2', h - lh + 4).attr('stroke', B.line).attr('stroke-dasharray', '3 3');
+      svg.append('text').attr('x', xd - 6).attr('y', 18).attr('text-anchor', 'end').attr('class', 'ub-tick').text(o.divider[0]);
+      svg.append('text').attr('x', xd + 6).attr('y', 18).attr('class', 'ub-tick').text(o.divider[1]); }
+    bars.forEach((b, i) => {
+      const c = col[b.kind], light = o.light && i > 0;
+      svg.append('rect').attr('x', x(b.label)).attr('width', x.bandwidth()).attr('y', y(Math.max(b.a, b.z))).attr('height', Math.max(1, Math.abs(y(b.a) - y(b.z)))).attr('rx', 3).attr('fill', c)
+        .attr('fill-opacity', light ? 0.45 : 1).attr('stroke', light ? c : 'none')
+        .on('mousemove', (ev) => tip.show(ev, b.label + (b.sub ? `, ${b.sub}` : ''), [[c, o.series, fmt.usdFull(b.v)]].concat(o.extraTip ? o.extraTip(b) : []))).on('mouseleave', () => tip.hide());
+      if (i < bars.length - 1) svg.append('line').attr('x1', x(b.label) + x.bandwidth()).attr('x2', x(bars[i + 1].label)).attr('y1', y(b.z)).attr('y2', y(b.z)).attr('class', 'ub-ref');
+      svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', y(Math.max(b.a, b.z)) - 6).attr('text-anchor', 'middle').attr('class', 'ub-val').text(b.kind === 'total' ? fmt.usd(b.v) : fmt.signedUsd(b.v));
+      const ln = x.bandwidth() < 58 && !multi ? [b.label.slice(0, 6)] : words(b.label);
+      ln.forEach((wd, j) => svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - lh + 18 + j * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(wd));
+      if (b.sub) svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - lh + 18 + ln.length * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('fill', B.muted).text(b.sub);
+    });
+    return bars;
+  }
   const allRR = () => state.bscope === 'all';
   const bView = () => state.bview || 'actual';
   // Month-end date label, e.g. "Jun 30, 2026", for the bridge's opening and closing bars.
   const eom = (m) => d3.utcFormat('%b %-d, %Y')(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)));
+  // "Jul to Sep 2026", or "Oct 2025 to Sep 2026" across years, matching the date-range labels.
+  const mRange = (a, z) => (a === z ? d3.utcFormat('%b %Y')(new Date(a + '-01T00:00:00Z')) : a.slice(0, 4) === z.slice(0, 4) ? `${d3.utcFormat('%b')(new Date(a + '-01T00:00:00Z'))} to ${d3.utcFormat('%b %Y')(new Date(z + '-01T00:00:00Z'))}` : `${d3.utcFormat('%b %Y')(new Date(a + '-01T00:00:00Z'))} to ${d3.utcFormat('%b %Y')(new Date(z + '-01T00:00:00Z'))}`);
   const prevM = (m) => addMonths(m + '-01', -1).slice(0, 7);
   // Forecast bridge, September 30, 2026 to March 31, 2027, from the plan waterfall (CFO.ai targets) for one case and channel.
   function bridgeFc(cs, ch) {
@@ -416,34 +450,10 @@
       const leg = [[B.peri, all ? 'Total MRR' : 'MRR'], [B.mint, 'Subscription gains'], [B.bad, 'Subscription losses']];
       if (u) leg.push([B.sky, 'Usage revenue, net change']);
       if (fc) leg.push([B.muted, `${view} case forecast (lighter bars)`]);
-      legend(el, leg);
-      const multi = !!u || fc, words = (l) => (multi ? l.split(' ') : [l]);
-      const nl = d3.max(steps, ([l, , k]) => words(l).length + (k === 'total' ? 1 : 0));
-      const { w, h } = size(el, opt, 300 + (nl - 1) * 13), svg = svgFor(el, w, h), lh = 18 + nl * 13;
-      let run = 0; const bars = steps.map(([label, v, kind]) => { const a = kind === 'total' ? 0 : run; const z = kind === 'total' ? v : run + v; run = kind === 'total' ? v : z; return { label, v, kind, a, z, sub: label === 'Beginning' ? d0 : label === 'Ending' ? d1 : null }; });
-      const y = d3.scaleLinear([0, d3.max(bars, (b) => Math.max(b.a, b.z)) * 1.12], [h - lh, 12]).nice();
-      const left = 8 + d3.max(y.ticks(4), (t) => textW(svg, fmt.usd(t)));
-      const x = d3.scaleBand(bars.map((b) => b.label), [left + 4, w - 4]).padding(0.28);
-      yAxis(svg, y, left, w - 4, fmt.usd);
-      const tip = tooltip(el);
-      const ui = bars.findIndex((b) => b.kind === 'usage');
-      if (ui > 0) { const xd = x(bars[ui].label) - x.step() * x.paddingInner() / 2;
-        svg.append('line').attr('x1', xd).attr('x2', xd).attr('y1', 8).attr('y2', h - lh + 4).attr('stroke', B.line).attr('stroke-dasharray', '3 3');
-        svg.append('text').attr('x', xd - 6).attr('y', 18).attr('text-anchor', 'end').attr('class', 'ub-tick').text('Subscription and services MRR');
-        svg.append('text').attr('x', xd + 6).attr('y', 18).attr('class', 'ub-tick').text('Usage revenue'); }
       const usageTip = (b) => (!u ? [] : b.label === 'Consumption change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.cons0)} → ${fmt.usdFull(u.cons1)}`]]
         : b.label === 'DSP change' ? [[null, `${fmt.monthLong(u.prevMonth)} → ${fmt.monthLong(u.lastMonth)}`, `${fmt.usdFull(u.dsp0)} → ${fmt.usdFull(u.dsp1)}`]] : []);
-      bars.forEach((b, i) => {
-        const c = b.kind === 'total' ? B.peri : b.kind === 'usage' ? B.sky : b.kind === 'up' ? B.mint : B.bad, light = fc && i > 0;
-        svg.append('rect').attr('x', x(b.label)).attr('width', x.bandwidth()).attr('y', y(Math.max(b.a, b.z))).attr('height', Math.max(1, Math.abs(y(b.a) - y(b.z)))).attr('rx', 3).attr('fill', c)
-          .attr('fill-opacity', light ? 0.45 : 1).attr('stroke', light ? c : 'none')
-          .on('mousemove', (ev) => tip.show(ev, b.label + (b.sub ? `, ${b.sub}` : ''), [[c, u ? 'All recurring revenue' : ch, fmt.usdFull(b.v)]].concat(usageTip(b)))).on('mouseleave', () => tip.hide());
-        if (i < bars.length - 1) svg.append('line').attr('x1', x(b.label) + x.bandwidth()).attr('x2', x(bars[i + 1].label)).attr('y1', y(b.z)).attr('y2', y(b.z)).attr('class', 'ub-ref');
-        svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', y(Math.max(b.a, b.z)) - 6).attr('text-anchor', 'middle').attr('class', 'ub-val').text(b.kind === 'total' ? fmt.usd(b.v) : fmt.signedUsd(b.v));
-        const ln = x.bandwidth() < 58 && !multi ? [b.label.slice(0, 6)] : words(b.label);
-        ln.forEach((wd, j) => svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - lh + 18 + j * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').text(wd));
-        if (b.sub) svg.append('text').attr('x', x(b.label) + x.bandwidth() / 2).attr('y', h - lh + 18 + ln.length * 13).attr('text-anchor', 'middle').attr('class', 'ub-tick').attr('fill', B.muted).text(b.sub);
-      });
+      const bars = bridgeDraw(el, opt, steps, { legend: leg, d0, d1, light: fc, multi: !!u || fc, series: u ? 'All recurring revenue' : ch, extraTip: usageTip,
+        divider: u ? ['Subscription and services MRR', 'Usage revenue'] : null });
       return { columns: ['Step', (u ? 'All recurring revenue (total MRR)' : ch + ' MRR') + (fc ? `, ${view} case` : '')],
         rows: bars.map((b) => [b.label + (b.sub ? ` (${b.sub})` : ''), b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
     },
@@ -1626,6 +1636,10 @@
       const u = all ? rrUsage() : null;
       if (u) return `Total MRR ${fmt.signedUsd(u.end - m.beginning - u.start)}: subscription ${fmt.signedUsd(m.net_new)}, usage ${fmt.signedUsd(u.cons + u.dsp)}`;
       return `${ch === 'Total' ? '' : ch + ' '}MRR ${fmt.signedUsd(m.net_new)} net: ${fmt.usd(m.new + m.expansion + m.reactivation)} added, ${fmt.usd(m.contraction + m.cancellation)} lost`; },
+    'c-pipewf': () => { const view = pwView();
+      if (view !== 'actual') { const f = pwFc(view); if (!f) return ''; return `${view} case: create ${fmt.usd(f.created)} of new-business pipeline by March to land ${f.wins} pipeline wins`; }
+      const P = rows('pipeline_waterfall'); if (!P) return ''; const q = pwSel(pwRows(P)); if (!q.length) return ''; const a = q[0], z = q[q.length - 1];
+      return `Open pipeline ${fmt.signedUsd(z.ending - a.beginning)} to ${fmt.usd(z.ending)}: ${fmt.usd(d3.sum(q, (r) => r.created))} created, ${fmt.usd(d3.sum(q, (r) => r.won))} won, ${fmt.usd(d3.sum(q, (r) => r.lost))} lost`; },
     'c-salestiles': () => { const bt = rows('booking_totals'); if (!bt) return ''; const s = S(), b = winRows(bt, s.book), c = winRows(bt, s.bookComp);
       return `Software bookings ${up(b.tcv, c.tcv)} ${fmt.pct(chg(b.tcv, c.tcv)).slice(1)} to ${fmt.usd(b.tcv)}; average deal ${fmt.usd(b.avg_deal)}`; },
     'c-bookmonth': () => { const bk = rows('bookings'); if (!bk) return ''; const Y = S().end.slice(0, 4), sw = bk.filter((b) => b.category === 'Software' && b.date.startsWith(Y));
@@ -1989,24 +2003,54 @@
     return d3.groups(P.filter((r) => !want || want.includes(r.block)), (r) => r.month).map(([m, rs]) => { const o = { month: m }; F.forEach((f) => { o[f] = d3.sum(rs, (r) => +r[f]); }); return o; }).sort((a, z) => d3.ascending(a.month, z.month)); };
   // The months of the date range that the history covers; a range with none falls back to the last three months it holds.
   const pwSel = (R) => { const ms = selMonths(), r = R.filter((x) => ms.includes(x.month)); return r.length ? r : R.slice(-3); };
+  const pwView = () => state.pwview || 'actual';
+  // Forecast pipeline bridge for new business, September 30, 2026 to March 31, 2027: what the plan's pipeline-sourced wins imply at the
+  // blended conversion since August 1 (win rate, average opportunity and won deal). No value changes or moves are assumed.
+  function pwFc(cs) {
+    const N = rows('pipeline_needed'), P = rows('pipeline_waterfall'); if (!N || !P) return null;
+    const b = pick(N, (r) => r.kind === 'basis'), M = N.filter((r) => r.kind === 'month' && r.case === cs).sort((p, q) => d3.ascending(p.month, q.month)); if (!b || !M.length) return null;
+    const s9 = P.filter((r) => r.month === '2026-09' && PW_BLOCK.New.includes(r.block)), sum = (f) => d3.sum(M, (r) => +r[f]);
+    const wins = sum('pipeline_wins'), closes = sum('deals_to_close'), lostN = closes - wins;
+    const begin = d3.sum(s9, (r) => +r.ending), created = sum('created_value_needed'), won = sum('won_value_needed'), lost = lostN * b.avg_created_value;
+    return { first: M[0].month, last: M[M.length - 1].month, begin, created, won, lost, end: begin + created - won - lost, createdN: sum('created_needed'), wins, lostN, b };
+  }
   CARDS['c-pipewf'] = {
-    kind: 'pipewf', src: ['pipeline_waterfall'], data: () => ['pipeline_waterfall'],
+    kind: 'pipewf', src: ['pipeline_waterfall', 'pipeline_needed'], data: () => ['pipeline_waterfall', 'pipeline_needed'],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      $$('.ub-seg-pwblock button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === state.pwblock));
-      const R = pwSel(pwRows(d.pipeline_waterfall));
-      const keys = [{ key: 'won', label: 'Won', color: B.good, dir: -1 }, { key: 'lost', label: 'Lost', color: B.bad, dir: -1 }, { key: 'decrease', label: 'Value lowered', color: B.prior, dir: -1 },
-        { key: 'created', label: 'Created', color: B.peri, dir: 1 }, { key: 'moved_in', label: 'Reopened or moved in', color: B.lav, dir: 1 }, { key: 'increase', label: 'Value raised', color: B.sky, dir: 1 }];
-      wfColumns(el, opt, R.map((r) => ({ ...r, open: r.beginning, end: r.ending })), keys, { legend: [[B.fg, 'Open pipeline at month end']] });
-      return { columns: ['Month', 'Opening', 'Created', 'Reopened or moved in', 'Value raised', 'Value lowered', 'Won', 'Lost', 'Ending', 'Deals created', 'Deals won', 'Deals lost'],
-        rows: R.map((r) => [fmt.monthLong(r.month), fmt.usdFull(r.beginning), fmt.usdFull(r.created), fmt.usdFull(r.moved_in), fmt.usdFull(r.increase), '−' + fmt.usdFull(r.decrease), '−' + fmt.usdFull(r.won), '−' + fmt.usdFull(r.lost), fmt.usdFull(r.ending), r.created_deals, r.won_deals, r.lost_deals]) };
+      const view = pwView(), fc = view !== 'actual', blk = fc ? 'New' : state.pwblock;
+      $$('.ub-seg-pwview button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === view));
+      $$('.ub-seg-pwblock button').forEach((b) => { b.setAttribute('aria-pressed', b.dataset.v === blk); b.disabled = fc && b.dataset.v !== 'New'; });
+      const C = { total: B.peri, up: B.mint, down: B.bad, won: B.deep, raise: B.sky, lower: B.prior, moved: B.lav };
+      let steps, d0, d1;
+      if (fc) {
+        const f = pwFc(view); if (!f) return null;
+        d0 = eom('2026-09'); d1 = eom(f.last);
+        steps = [['Beginning', f.begin, 'total'], ['Created', f.created, 'up'], ['Won', -f.won, 'won'], ['Lost', -f.lost, 'down'], ['Ending', f.end, 'total']];
+      } else {
+        const R = pwSel(pwRows(d.pipeline_waterfall)), a = R[0], z = R[R.length - 1], s = (k) => d3.sum(R, (r) => r[k]);
+        d0 = eom(prevM(a.month)); d1 = eom(z.month);
+        steps = [['Beginning', a.beginning, 'total'], ['Created', s('created'), 'up'], ['Reopened or moved in', s('moved_in'), 'moved'], ['Value raised', s('increase'), 'raise'],
+          ['Value lowered', -s('decrease'), 'lower'], ['Won', -s('won'), 'won'], ['Lost', -s('lost'), 'down'], ['Ending', z.ending, 'total']];
+      }
+      const leg = [[B.peri, 'Open pipeline'], [B.mint, 'Created'], [B.deep, 'Won (to bookings)'], [B.bad, 'Lost']];
+      if (!fc) leg.push([B.lav, 'Reopened or moved in'], [B.sky, 'Value raised'], [B.prior, 'Value lowered']);
+      else leg.push([B.muted, `${view} case plan (lighter bars)`]);
+      const ser = fc ? 'New business' : ({ Total: 'All pipelines', New: 'New business', Direct: 'Direct', Reseller: 'Reseller', Expansion: 'Expansion' })[blk];
+      const bars = bridgeDraw(el, opt, steps, { legend: leg, d0, d1, light: fc, multi: true, series: ser, colors: C });
+      return { columns: ['Step', `${ser}${fc ? `, ${view} case plan` : ''}`], rows: bars.map((b) => [b.label + (b.sub ? ` (${b.sub})` : ''), b.kind === 'total' ? fmt.usdFull(b.v) : fmt.signedUsd(b.v)]) };
     },
     note() {
+      const view = pwView();
+      if (view !== 'actual') {
+        const f = pwFc(view); if (!f) return '';
+        return `What the ${view} case needs from new-business pipeline, October 2026 to March 2027: about ${Math.round(f.createdN)} opportunities created (${fmt.usd(f.created)}), ${f.wins} won (${fmt.usd(f.won)}) and about ${Math.round(f.lostN)} lost (${fmt.usd(f.lost)}), at the ${d3.format('.1%')(f.b.win_rate)} win rate, ${fmt.usd(f.b.avg_created_value)} average opportunity and ${fmt.usd(f.b.avg_won_value)} average won deal since August 1. Open pipeline would go from ${fmt.usd(f.begin)} to ${fmt.usd(f.end)}. Named Upside deals are left out; no value changes or moves between pipelines are assumed.`;
+      }
       const P = rows('pipeline_waterfall'); if (!P) return '';
       const q = pwSel(pwRows(P)), a = q[0], z = q[q.length - 1];
       if (!a || !z) return '';
-      const per = q.length > 1 ? `${fmt.monthLong(a.month)} to ${fmt.monthLong(z.month)}` : fmt.monthLong(a.month);
-      return `${per}: ${fmt.usd(d3.sum(q, (r) => r.created))} created, ${fmt.usd(d3.sum(q, (r) => r.won))} won and ${fmt.usd(d3.sum(q, (r) => r.lost))} lost; open pipeline went from ${fmt.usd(a.beginning)} to ${fmt.usd(z.ending)}. Values are HubSpot deal amounts (contract value).`;
+      const per = q.length > 1 ? `${fmt.monthLong(a.month)} to ${fmt.monthLong(z.month)}` : fmt.monthLong(a.month), s = (k) => d3.sum(q, (r) => r[k]);
+      return `${per}: ${fmt.usd(s('created'))} created across ${s('created_deals')} opportunities, ${fmt.usd(s('won'))} won (${s('won_deals')} deals) and ${fmt.usd(s('lost'))} lost (${s('lost_deals')} deals); open pipeline went from ${fmt.usd(a.beginning)} to ${fmt.usd(z.ending)}. Values are HubSpot deal amounts (contract value).`;
     },
   };
 
@@ -2112,7 +2156,8 @@
     if (kind === 'finpath') { const f = FIN(); return f ? `January to December 2026 · actuals layered in through ${fmt.monthLong(f.close_month)}` : ''; }
     if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
     if (kind === 'mrrwf') return `Monthly, April 2026 to March 2027 · actuals through September (KPI sheet), then the ${state.wfcase} case (CFO.ai), with the ${state.wfcase === 'Upside' ? 'Base' : 'Upside'} case's ending MRR dashed`;
-    if (kind === 'pipewf') { const P = rows('pipeline_waterfall'); const q = P ? pwSel(pwRows(P)) : []; return q.length ? `Monthly, ${fmt.monthLong(q[0].month)} to ${fmt.monthLong(q[q.length - 1].month)} (closed months in the date range) · rebuilt from HubSpot deal history` : 'Rebuilt from HubSpot deal history'; }
+    if (kind === 'pipewf') { if (pwView() !== 'actual') return `${pwView()} case plan, October 2026 to March 2027 · new business at conversion since August 1, 2026`;
+      const P = rows('pipeline_waterfall'); const q = P ? pwSel(pwRows(P)) : []; return q.length ? `${mRange(q[0].month, q[q.length - 1].month)}, closed months · rebuilt from HubSpot deal history` : 'Rebuilt from HubSpot deal history'; }
     if (kind === 'pipeneed') return 'Base and Upside cases, October 2026 to March 2027 · all new business, conversion since August 1, 2026';
     if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
     return '';
@@ -2131,7 +2176,7 @@
     Object.assign(state, { preset: 'custom', start: a <= z ? a : z, end: a <= z ? z : a }); saveRange(); render();
   }));
   $$('.ub-seg-cmp button').forEach((b) => b.addEventListener('click', saveRange));
-  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-bview', 'bview'); bind('.ub-seg-pwblock', 'pwblock');
+  bind('.ub-seg-cmp', 'cmp'); bind('.ub-seg-data', 'data'); bind('.ub-seg-channel', 'channel'); bind('.ub-seg-dim', 'dim'); bind('.ub-seg-stmt', 'stmt'); bind('.ub-seg-wfch', 'wfch'); bind('.ub-seg-wfcase', 'wfcase'); bind('.ub-seg-bscope', 'bscope'); bind('.ub-seg-bview', 'bview'); bind('.ub-seg-pwblock', 'pwblock'); bind('.ub-seg-pwview', 'pwview');
   $$('.ub-tabs button').forEach((b) => b.addEventListener('click', () => { state.tab = b.dataset.tab; dash.setLink(b.dataset.tab); render(); }));
   document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('#ub [data-copy]'); if (!btn) return;
