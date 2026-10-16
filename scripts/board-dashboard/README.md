@@ -116,6 +116,16 @@ forecast. Nothing is changed in CFO.ai without an explicit go-ahead.
    but no Direct customers are on the consumption model, so it should be 100%
    reseller. Raised October 16, 2026; to fix in CFO.ai after the board meeting.
 
+## Financial review
+
+The Financial review tab mirrors the deck's path-to-break-even and budget variance slides. Its one dataset, `fin_review`, is read by hand from CFO.ai (read only): "P&L - This Month vs Budget" and "P&L - YTD vs Budget" with comparison Budget 2026, and "P&L - TTM" for the monthly series, all from Main Scenario.
+
+- Variance is actual minus budget (CFO.ai's delta column is budget minus actual). Red marks an unfavorable variance: revenue under budget, expenses over.
+- Expenses are COGS plus operating expenses; CFO.ai's "Total Expenses" is opex only.
+- CFO.ai's EBITDA includes other income, so revenue minus expenses does not equal EBITDA exactly.
+- Re-read after each close and update `close_month`. The tab follows whatever close the file holds.
+- The "Against the July 2026 board forecast" card sits on this tab.
+
 ## Date range
 
 The page has a preset menu (last 90 days, month to date, last month, quarter to

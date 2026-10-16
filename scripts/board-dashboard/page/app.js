@@ -1225,6 +1225,90 @@
     },
   };
 
+  // ---------- Financial review: the last closed month against the 2026 budget (deck slides on the path to break even and budget variance)
+  const FIN = () => { const f = rows('fin_review'); return f && f[0]; };
+  const acct = (v) => (v == null ? '—' : Math.round(v) < 0 ? `($${d3.format(',.0f')(-v)})` : '$' + d3.format(',.0f')(Math.abs(v)));
+  const finBad = (l, v) => (l.better === 'exp' ? v > 0 : v < 0);
+  function finTable(sec) {
+    return {
+      kind: 'fin', src: ['fin_review'], data: () => ['fin_review'],
+      draw(el, opt) {
+        const d = need(el, this.data()); if (!d) return null;
+        const f = d.fin_review[0], mo = fmt.month(f.close_month), ls = f.lines.filter((l) => l.section === sec);
+        const head = ['Line', `${mo} actual`, `${mo} budget`, 'Month vs budget', 'YTD actual', 'YTD budget', 'YTD vs budget'];
+        const vals = ls.map((l) => [l.month_actual, l.month_budget, l.month_actual - l.month_budget, l.ytd_actual, l.ytd_budget, l.ytd_actual - l.ytd_budget]);
+        const body2 = ls.map((l, i) => [l.line].concat(vals[i].map(acct)));
+        const strong = (r) => /^Total|^EBITDA/.test(r[0]);
+        if (!opt || !opt.export) {
+          htmlTable(el, head, body2, strong);
+          el.querySelectorAll('tbody tr').forEach((tr, i) => [3, 6].forEach((c) => { if (finBad(ls[i], vals[i][c - 1])) tr.children[c].className = 'ub-neg'; }));
+        }
+        tableSvg(el, head, body2, opt);
+        return { columns: head, rows: body2 };
+      },
+    };
+  }
+  CARDS['c-fin-rev'] = { ...finTable('revenue'), note() {
+    const f = FIN(); if (!f) return ''; const l = f.lines.filter((x) => x.section === 'revenue'), t = l.find((x) => x.line === 'Total Revenue');
+    const sw = l.filter((x) => /Subscription|Consumption/.test(x.line)), svc = l.find((x) => x.line === 'Services - Project');
+    return `Variance is actual minus budget; red is unfavorable. Subscription and consumption are ${fmt.usd(-d3.sum(sw, (x) => x.ytd_actual - x.ytd_budget))} under budget year to date; services projects (${fmt.usd(svc.ytd_actual - svc.ytd_budget)} over) and DSP cover part of the gap, leaving total revenue ${fmt.usd(t.ytd_budget - t.ytd_actual)} under.`; } };
+  CARDS['c-fin-exp'] = { ...finTable('expenses'), note() {
+    const f = FIN(); if (!f) return ''; const g = (n) => f.lines.find((x) => x.section === 'expenses' && x.line.startsWith(n));
+    const c = g('Cost'), o = g('Operating');
+    return `Variance is actual minus budget; red is spending over budget. Year to date, cost of goods sold is ${fmt.usd(c.ytd_actual - c.ytd_budget)} over budget and operating expenses ${fmt.usd(o.ytd_actual - o.ytd_budget)} over. In ${fmt.monthLong(f.close_month).split(' ')[0]}, operating expenses were ${fmt.usd(o.month_budget - o.month_actual)} under budget.`; } };
+  CARDS['c-fin-sum'] = { ...finTable('summary'), note() {
+    const f = FIN(); if (!f) return '';
+    return `EBITDA includes other income: ${fmt.usdFull(f.other_income_ytd)} year to date against ${fmt.usdFull(f.other_income_ytd_budget)} budgeted. Variance is actual minus budget; red is unfavorable.`; } };
+
+  CARDS['c-fin-path'] = {
+    kind: 'fin', src: ['fin_review'], data: () => ['fin_review'],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      const f = d.fin_review[0], M = f.months, act = (m) => m.revenue != null;
+      const RV = B.sky, EX = B.peri, EB = B.amber;
+      legend(el, [[RV, 'Revenue'], [EX, 'Expenses (COGS + opex)'], [EB, 'EBITDA, actual'], [B.muted, 'Budget (lighter bars and dashed line)']]);
+      const { w, h } = size(el, opt, (opt && opt.height) || 340);
+      const svg = svgFor(el, w, h);
+      const hi = d3.max(M, (m) => Math.max(m.revenue || 0, m.expenses || 0, m.budget_revenue, m.budget_expenses));
+      const lo = d3.min(M, (m) => Math.min(m.ebitda == null ? 0 : m.ebitda, m.budget_ebitda));
+      const y = d3.scaleLinear([lo * 1.25, hi * 1.12], [h - 28, 12]).nice();
+      const yf = (t) => (t === 0 ? 'Break even' : fmt.usdS(t)), kf = (v) => '$' + d3.format(',')(Math.round(v / 1000)) + 'K';
+      const left = 8 + d3.max(y.ticks(6), (t) => textW(svg, yf(t)));
+      const x = d3.scaleBand(M.map((m) => m.month), [left + 4, w - 4]).padding(0.22), bw = x.bandwidth() / 2;
+      yAxis(svg, y, left, w - 4, yf, 6);
+      const small = w < 700, lastA = M.filter(act).pop().month;
+      M.forEach((m) => {
+        const a = act(m), rv = a ? m.revenue : m.budget_revenue, ex = a ? m.expenses : m.budget_expenses;
+        [[rv, RV, 0], [ex, EX, bw]].forEach(([v, c, dx]) => svg.append('rect').attr('x', x(m.month) + dx).attr('width', bw - 1).attr('y', y(v)).attr('height', Math.max(0, y(0) - y(v)))
+          .attr('fill', c).attr('fill-opacity', a ? 1 : 0.35).attr('stroke', a ? 'none' : c).attr('stroke-dasharray', '3 2'));
+        if (!small) [[rv, 0], [ex, bw]].forEach(([v, dx]) => svg.append('text').attr('x', x(m.month) + dx + bw / 2).attr('y', y(v) - 4).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', 10).text(kf(v)));
+        svg.append('text').attr('x', x(m.month) + bw).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', a ? 'ub-tick ub-tick-on' : 'ub-tick').text(fmt.month(m.month).split(' ')[0]);
+      });
+      const cx = (m) => x(m.month) + bw;
+      const line = d3.line().x(cx).y((p) => y(p.v));
+      svg.append('path').attr('d', line(M.map((m) => ({ ...m, v: m.budget_ebitda })))).attr('fill', 'none').attr('stroke', EB).attr('stroke-width', 2).attr('stroke-dasharray', '5 4').attr('stroke-opacity', 0.8);
+      const A = M.filter(act);
+      svg.append('path').attr('d', line(A.map((m) => ({ ...m, v: m.ebitda })))).attr('fill', 'none').attr('stroke', EB).attr('stroke-width', 2.5);
+      M.forEach((m) => {
+        const a = act(m), v = a ? m.ebitda : m.budget_ebitda, lab = !small || [M[0].month, lastA, M[M.length - 1].month].includes(m.month);
+        svg.append('circle').attr('cx', cx(m)).attr('cy', y(v)).attr('r', a ? 4 : 3).attr('fill', a ? EB : B.bg).attr('stroke', EB).attr('stroke-width', 1.5);
+        if (lab) svg.append('text').attr('x', cx(m)).attr('y', y(v) + 16).attr('text-anchor', 'middle').attr('class', 'ub-val').attr('font-size', small ? 10 : 10.5).text(fmt.usdS(v));
+      });
+      const tip = tooltip(el);
+      M.forEach((m) => svg.append('rect').attr('x', x(m.month) - x.step() * x.paddingInner() / 2).attr('width', x.step()).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent').attr('class', 'ub-hit')
+        .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(m.month) + (act(m) ? '' : ' (budget)'), (act(m) ? [[RV, 'Revenue', fmt.usdFull(m.revenue)], [EX, 'Expenses', fmt.usdFull(m.expenses)], [EB, 'EBITDA', fmt.usdFull(m.ebitda)]] : [])
+          .concat([[null, 'Budget revenue', fmt.usdFull(m.budget_revenue)], [null, 'Budget expenses', fmt.usdFull(m.budget_expenses)], [null, 'Budget EBITDA', fmt.usdFull(m.budget_ebitda)]])))
+        .on('mouseleave', () => tip.hide()));
+      return { columns: ['Month', 'Revenue', 'Expenses (COGS + opex)', 'EBITDA', 'Budget revenue', 'Budget expenses', 'Budget EBITDA'],
+        rows: M.map((m) => [fmt.monthLong(m.month), act(m) ? fmt.usdFull(m.revenue) : '', act(m) ? fmt.usdFull(m.expenses) : '', act(m) ? fmt.usdFull(m.ebitda) : '', fmt.usdFull(m.budget_revenue), fmt.usdFull(m.budget_expenses), fmt.usdFull(m.budget_ebitda)]) };
+    },
+    note() {
+      const f = FIN(); if (!f) return ''; const M = f.months, A = M.filter((m) => m.revenue != null), last = A[A.length - 1], dec = M[M.length - 1];
+      const best = A.reduce((a, m) => (m.ebitda > a.ebitda ? m : a));
+      return `Actuals through ${fmt.monthLong(last.month)}, budget for the rest of the year. EBITDA improved from ${fmt.usd(A[0].ebitda)} in January to ${fmt.usd(last.ebitda)} in ${fmt.monthLong(last.month).split(' ')[0]} (best month ${fmt.monthLong(best.month).split(' ')[0]} at ${fmt.usd(best.ebitda)}); the budget reaches ${fmt.usd(dec.budget_ebitda)} in December as revenue climbs to ${fmt.usd(dec.budget_revenue)} against ${fmt.usd(dec.budget_expenses)} of expenses. EBITDA includes other income.`;
+    },
+  };
+
   CARDS['c-mqlchannels'] = {
     kind: 'close', src: ['mqls', 'kpi'], data: () => [id('mqls'), 'kpi'],
     draw(el, opt) {
@@ -1281,6 +1365,14 @@
     'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
     'c-deckfollow': () => { const r = rows(id('deck_pipeline')); if (!r) return ''; const open = r.filter((x) => dealState(x) === 'open'), won = r.filter((x) => dealState(x) === 'won');
       return `${won.length} of the ${r.length} July deck deals won, ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV`; },
+    'c-fin-path': () => { const f = FIN(); if (!f) return ''; const A = f.months.filter((m) => m.revenue != null), l = A[A.length - 1], dec = f.months[f.months.length - 1];
+      return `EBITDA ${fmt.usd(l.ebitda)} in ${fmt.monthLong(l.month).split(' ')[0]}, up from ${fmt.usd(A[0].ebitda)} in January; budget reaches ${fmt.usd(dec.budget_ebitda)} by December`; },
+    'c-fin-rev': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'revenue' && x.line === 'Total Revenue'); const v = t.ytd_actual - t.ytd_budget;
+      return `Revenue ${fmt.usd(t.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} (${d3.format('.1%')(Math.abs(v) / t.ytd_budget)}) ${v < 0 ? 'under' : 'over'} budget`; },
+    'c-fin-exp': () => { const f = FIN(); if (!f) return ''; const t = f.lines.find((x) => x.section === 'expenses' && x.line.startsWith('Total')); const v = t.ytd_actual - t.ytd_budget;
+      return `Expenses ${fmt.usd(t.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} (${d3.format('.1%')(Math.abs(v) / t.ytd_budget)}) ${v > 0 ? 'over' : 'under'} budget`; },
+    'c-fin-sum': () => { const f = FIN(); if (!f) return ''; const e = f.lines.find((x) => x.section === 'summary' && x.line === 'EBITDA'); const v = e.ytd_actual - e.ytd_budget;
+      return `EBITDA ${fmt.usd(e.ytd_actual)} year to date, ${fmt.usd(Math.abs(v))} ${v < 0 ? 'behind' : 'ahead of'} budget`; },
     'c-plan-july': () => { const f = rows('july_forecast'); if (!f) return ''; const dec = f[f.length - 1];
       return `December revenue now ${fmt.usd(dec.base_revenue)} to ${fmt.usd(dec.upside_revenue)} against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
@@ -1576,6 +1668,7 @@
     if (kind === 'trend') { const k = (raw('kpi') || []).map((r) => r.month).filter(TREND); return `Monthly, ${fmt.monthLong(k[0] || s.win)} to ${fmt.monthLong(k[k.length - 1] || s.win)} · highlighted: ${WIN_LABEL[s.win]}`; }
     if (kind === 'plan' || kind === 'planlive') { const T = rows(id('plan_targets')), m = planMonth();
       return `${T ? caseOf(T) : 'Selected'} case targets, October 2026 to March 2027 · ${paceOf(m) ? fmt.monthLong(m) + ' to date' : fmt.monthLong(m)}${kind === 'planlive' ? (state.data === 'frozen' ? ' · pipeline as of the board snapshot' : ' · pipeline live') : ''}`; }
+    if (kind === 'fin') { const f = FIN(); return f ? `Last closed month: ${fmt.monthLong(f.close_month)} · actuals vs 2026 budget` : ''; }
     if (kind === 'live') return state.data === 'frozen' ? `Open as of the board snapshot, ${snapDate()}` : 'Open right now (live)';
     return '';
   }
