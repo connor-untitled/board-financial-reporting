@@ -1391,14 +1391,14 @@
   CARDS['c-fin-rev'] = { ...finTable('revenue'), note() {
     const f = FIN(); if (!f) return ''; const l = f.lines.filter((x) => x.section === 'revenue'), t = l.find((x) => x.line === 'Total Revenue');
     const sw = l.filter((x) => /Subscription|Consumption/.test(x.line)), svc = l.find((x) => x.line === 'Services - Project');
-    return `Variance is actual minus budget: green is favorable, red unfavorable. Subscription and consumption are ${fmt.usd(-d3.sum(sw, (x) => x.ytd_actual - x.ytd_budget))} under budget year to date; services projects (${fmt.usd(svc.ytd_actual - svc.ytd_budget)} over) and DSP cover part of the gap, leaving total revenue ${fmt.usd(t.ytd_budget - t.ytd_actual)} under.`; } };
+    return `Subscription and consumption are ${fmt.usd(-d3.sum(sw, (x) => x.ytd_actual - x.ytd_budget))} under budget year to date; services projects (${fmt.usd(svc.ytd_actual - svc.ytd_budget)} over) and DSP cover part of the gap, leaving total revenue ${fmt.usd(t.ytd_budget - t.ytd_actual)} under.`; } };
   CARDS['c-fin-exp'] = { ...finTable('expenses'), note() {
     const f = FIN(); if (!f) return ''; const g = (n) => f.lines.find((x) => x.section === 'expenses' && x.line.startsWith(n));
     const c = g('Cost'), o = g('Operating');
-    return `Variance is actual minus budget: red is spending over budget, green under. Year to date, cost of goods sold is ${fmt.usd(c.ytd_actual - c.ytd_budget)} over budget and operating expenses ${fmt.usd(o.ytd_actual - o.ytd_budget)} over. In ${fmt.monthLong(f.close_month).split(' ')[0]}, operating expenses were ${fmt.usd(o.month_budget - o.month_actual)} under budget.`; } };
+    return `Year to date, cost of goods sold is ${fmt.usd(c.ytd_actual - c.ytd_budget)} over budget and operating expenses ${fmt.usd(o.ytd_actual - o.ytd_budget)} over. In ${fmt.monthLong(f.close_month).split(' ')[0]}, operating expenses were ${fmt.usd(o.month_budget - o.month_actual)} under budget.`; } };
   CARDS['c-fin-sum'] = { ...finTable('summary'), note() {
     const f = FIN(); if (!f) return '';
-    return `EBITDA includes other income: ${fmt.usdFull(f.other_income_ytd)} year to date against ${fmt.usdFull(f.other_income_ytd_budget)} budgeted. Variance is actual minus budget: green is favorable, red unfavorable.`; } };
+    return `EBITDA includes ${fmt.usdFull(f.other_income_ytd)} of other income year to date (${fmt.usdFull(f.other_income_ytd_budget)} budgeted).`; } };
 
   CARDS['c-fin-path'] = {
     kind: 'finpath', src: ['fin_review'], data: () => ['fin_review'],
@@ -1444,7 +1444,7 @@
     },
     note() {
       const f = FIN(); if (!f) return ''; const A = f.months.filter((m) => m.revenue != null), last = A[A.length - 1], s = (k) => d3.sum(A, (m) => m[k]);
-      return `Wide light bars are the 2026 budget for every month; narrow solid bars are actuals, closed through ${fmt.monthLong(last.month)}. No forecast is shown here. Year to date, revenue is ${fmt.usd(s('revenue'))} against ${fmt.usd(s('budget_revenue'))} budgeted and EBITDA ${fmt.usd(s('ebitda'))} against ${fmt.usd(s('budget_ebitda'))}. EBITDA includes other income.`;
+      return `Year to date through ${fmt.monthLong(last.month).split(' ')[0]}: revenue ${fmt.usd(s('revenue'))} vs ${fmt.usd(s('budget_revenue'))} budget; EBITDA ${fmt.usd(s('ebitda'))} vs ${fmt.usd(s('budget_ebitda'))}.`;
     },
   };
 
@@ -1557,11 +1557,14 @@
     },
     note() {
       const F = ST(); if (!F) return '';
-      const R = F.rowsOf('q', 'summary'), g = (n) => R.find((r) => r.line === n);
-      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
-      const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance'), last = ms[ms.length - 1];
-      const pend = ms.length < 3 ? ' September joins once its books close.' : '';
-      return `Actual against the 2026 budget; variance is actual minus budget, green favorable and red unfavorable. Switch statements above the table; Copy image copies the one showing. ${ms.length < 3 ? 'Quarter to date' : 'For the quarter'}, revenue is ${fmt.usd(s(rev, 'actual'))} against ${fmt.usd(s(rev, 'budget'))} budgeted and EBITDA ${fmt.usd(s(eb, 'actual'))} against ${fmt.usd(s(eb, 'budget'))}; cash closed ${fmt.monthLong(last).split(' ')[0]} at ${fmt.usd(cash.vals[last + '|actual'])} against ${fmt.usd(cash.vals[last + '|budget'])} in the budget.${pend}`;
+      const ms = ['2026-07', '2026-08', '2026-09'].filter((m) => m <= F.close), last = ms[ms.length - 1], per = ms.length < 3 ? 'Q3 to date' : 'Q3';
+      const R = F.rowsOf('q', state.stmt), g = (n) => R.find((r) => r.line === n), s = (r, b) => d3.sum(ms, (m) => r.vals[m + '|' + b] || 0);
+      const vb = (n, sum) => { const r = g(n); if (!r) return ''; const a = sum ? s(r, 'actual') : r.vals[last + '|actual'], b = sum ? s(r, 'budget') : r.vals[last + '|budget']; return `${fmt.usd(a)} vs ${fmt.usd(b)} budget`; };
+      const mo = fmt.monthLong(last).split(' ')[0];
+      if (state.stmt === 'pl') return `${per}: revenue ${vb('Total Revenue', true)}; net income ${vb('Net Income', true)}.`;
+      if (state.stmt === 'bs') return `End of ${mo}: cash ${vb('Cash & Equivalents')}; receivables ${vb('Accounts Receivable')}.`;
+      if (state.stmt === 'cf') return `${per}: operating cash flow ${vb('Cash Flow from Operating Activities', true)}; cash closed ${mo} at ${vb('Cash & Equivalents, Closing Balance')}.`;
+      return `${per}: revenue ${vb('Total Revenue', true)}; EBITDA ${vb('EBITDA', true)}; cash closed ${mo} at ${vb('Cash & Equivalents, Closing Balance')}.`;
     },
   };
 
@@ -1587,7 +1590,7 @@
       const F = ST(); if (!F) return ''; const R = F.rowsOf('ytd', 'ytd'), g = (n) => R.find((r) => r.line === n);
       const rev = g('Total Revenue'), eb = g('EBITDA'), cash = g('Cash & Equivalents, Closing Balance');
       const neg = d3.range(1, 13).map((i) => `2026-${String(i).padStart(2, '0')}`).find((m) => m > F.close && cash.vals[m + '|upside'] < 0);
-      return `Actuals through ${fmt.monthLong(F.close)}, then the current Upside case. December: revenue ${fmt.usd(rev.vals['2026-12|upside'])}, EBITDA ${fmt.usd(eb.vals['2026-12|upside'])}, closing cash ${fmt.usd(cash.vals['2026-12|upside'])}.${neg ? ` Cash goes below zero in ${fmt.monthLong(neg)} in this case, before any new financing.` : ''}`;
+      return `December, Upside case: revenue ${fmt.usd(rev.vals['2026-12|upside'])}, EBITDA ${fmt.usd(eb.vals['2026-12|upside'])}, cash ${fmt.usd(cash.vals['2026-12|upside'])}.${neg ? ` Cash turns negative in ${fmt.monthLong(neg).split(' ')[0]} before any new financing.` : ''}`;
     },
   };
 
