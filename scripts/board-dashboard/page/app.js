@@ -590,6 +590,52 @@
     },
   };
 
+  // Open pipeline by stage for each pipeline, not split by account type: one bar per stage, every label outside the bar.
+  CARDS['c-pipestage'] = {
+    kind: 'live', src: ['pipeline_open'], data: () => [id('pipeline_open')],
+    draw(el, opt) {
+      const d = need(el, this.data()); if (!d) return null;
+      const NAME = { Opportunity: 'New business (Opportunity pipeline)', Enterprise: 'New business (Enterprise pipeline)', Upsell: 'Expansion (existing customers)' };
+      const groups = ['Opportunity', 'Enterprise', 'Upsell'].map((pl) => {
+        const st = d3.rollups(d[id('pipeline_open')].filter((r) => r.pipeline === pl), (v) => ({ deals: d3.sum(v, (r) => +r.deals), value: d3.sum(v, (r) => +r.pipeline_value), order: +v[0].stage_order }), (r) => r.stage)
+          .map(([stage, v]) => ({ stage, ...v })).sort((a, z) => a.order - z.order);
+        return { pl, name: NAME[pl], st, deals: d3.sum(st, (s) => s.deals), value: d3.sum(st, (s) => s.value) };
+      }).filter((g) => g.st.length);
+      const barH = 22, gap = 8, headH = 30, groupGap = 18;
+      const { w } = size(el, opt, 0);
+      const h = (opt && opt.h) || d3.sum(groups, (g) => headH + g.st.length * (barH + gap)) + groupGap * (groups.length - 1) + 6;
+      const svg = svgFor(el, w, h), tip = tooltip(el);
+      const fmtV = (s) => `${fmt.usdFull(s.value)} · ${s.deals} deal${s.deals === 1 ? '' : 's'}`;
+      const labW = d3.max(groups.flatMap((g) => g.st), (s) => textW(svg, s.stage, 'ub-lab')) + 14;
+      const valW = d3.max(groups.flatMap((g) => g.st), (s) => textW(svg, fmtV(s), 'ub-tick')) + 12;
+      const x = d3.scaleLinear([0, d3.max(groups.flatMap((g) => g.st), (s) => s.value) || 1], [0, Math.max(40, w - labW - valW)]);
+      const colors = { Opportunity: B.deep, Enterprise: B.peri, Upsell: B.mint };
+      let y0 = 0;
+      groups.forEach((g, gi) => {
+        svg.append('text').attr('x', 0).attr('y', y0 + 18).attr('class', 'ub-lab').attr('font-weight', 600).text(g.name);
+        svg.append('text').attr('x', w - 2).attr('y', y0 + 18).attr('text-anchor', 'end').attr('class', 'ub-delta').attr('fill', B.fg).text(`${fmt.usdFull(g.value)} · ${g.deals} deals`);
+        y0 += headH;
+        g.st.forEach((s) => {
+          svg.append('text').attr('x', labW - 10).attr('y', y0 + barH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('class', 'ub-lab').text(s.stage);
+          const wd = Math.max(s.value ? 2 : 0, x(s.value));
+          svg.append('rect').attr('x', labW).attr('y', y0).attr('width', wd).attr('height', barH).attr('rx', 3).attr('fill', colors[g.pl])
+            .on('mousemove', (ev) => tip.show(ev, `${g.name} · ${s.stage}`, [[colors[g.pl], `${s.deals} deals`, fmt.usdFull(s.value)]])).on('mouseleave', () => tip.hide());
+          svg.append('text').attr('x', labW + wd + 6).attr('y', y0 + barH / 2).attr('dy', '0.35em').attr('class', 'ub-tick').attr('fill', B.fg).text(fmtV(s));
+          y0 += barH + gap;
+        });
+        if (gi < groups.length - 1) y0 += groupGap;
+      });
+      const tot = d3.sum(groups, (g) => g.value), n = d3.sum(groups, (g) => g.deals);
+      return { columns: ['Pipeline', 'Stage', 'Deals', 'Pipeline value'], rows: groups.flatMap((g) => g.st.map((s) => [g.name, s.stage, s.deals, fmt.usdFull(s.value)])).concat([['Total', '', n, fmt.usdFull(tot)]]) };
+    },
+    note() {
+      const p = rows(id('pipeline_open')); if (!p) return '';
+      const sum = (f) => d3.sum(p.filter(f), (r) => +r.pipeline_value), cnt = (f) => d3.sum(p.filter(f), (r) => +r.deals);
+      const nb = (r) => r.pipeline !== 'Upsell', ex = (r) => r.pipeline === 'Upsell';
+      return `${fmt.usd(sum(() => true))} open across ${cnt(() => true)} deals: ${fmt.usd(sum(nb))} new business (${cnt(nb)} deals) and ${fmt.usd(sum(ex))} expansion with existing customers (${cnt(ex)} deals), by stage.`;
+    },
+  };
+
   CARDS['c-pipemove'] = {
     kind: 'close', src: ['kpi'], data: () => ['pipeline_windows'],
     draw(el, opt) {
@@ -664,7 +710,7 @@
         if (bw >= 18) g.append('text').attr('x', x(q.month) + bw / 2).attr('y', y(0) - 6).attr('text-anchor', 'middle').attr('class', 'ub-seg').attr('font-size', 9).attr('fill', B.soft).text(q.resellers);
         if (i % every === 0 || on || i === data.length - 1) svg.append('text').attr('x', x(q.month) + bw / 2).attr('y', h - 8).attr('text-anchor', 'middle').attr('class', on ? 'ub-tick ub-tick-on' : 'ub-tick').attr('font-size', 11).text(q.month === S().openMonth ? fmt.month(q.month).slice(0, 3) + '*' : fmt.month(q.month));
         svg.append('rect').attr('class', 'ub-hit').attr('x', x(q.month)).attr('width', bw).attr('y', 0).attr('height', h - 24).attr('fill', 'transparent')
-          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients', fmt.n(q.end_clients)], [null, 'Resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed'], [null, 'Source', q.src === 'Sheet' ? 'Wins tab as published' : 'Metabase']])).on('mouseleave', () => tip.hide());
+          .on('mousemove', (ev) => tip.show(ev, fmt.monthLong(q.month), [[c, 'End clients (consumption-priced resellers)', fmt.n(q.end_clients)], [null, 'Consumption-priced resellers with active clients', fmt.n(q.resellers)], [B.mint, 'Consumption revenue', q.consumption != null ? fmt.usdFull(q.consumption) : 'not closed']])).on('mouseleave', () => tip.hide());
       });
       const pts = data.filter((q) => q.consumption != null);
       svg.append('path').attr('d', d3.line().x((q) => x(q.month) + bw / 2).y((q) => y2(q.consumption))(pts)).attr('fill', 'none').attr('stroke', B.mint).attr('stroke-width', 2);
@@ -674,14 +720,14 @@
       });
       const top = data.reduce((a, q) => (q.end_clients > a.end_clients ? q : a), data[0]);
       callout(svg, w - right, x(top.month) + bw / 2, y(top.end_clients), `Record ${top.end_clients}${top.month === S().openMonth ? ', month to date' : ''}`, { lift: 22 });
-      legend(el, [[B.deep, 'End clients (10+ resolutions)'], [B.soft, 'Active resellers (number at base)'], [B.mint, 'Consumption revenue (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
-      return { columns: ['Month', 'Reseller end clients', 'Resellers with active clients', 'Consumption revenue', 'Source'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '', q.src === 'Sheet' ? 'Wins tab' : 'Metabase']) };
+      legend(el, [[B.deep, 'End clients of consumption-priced resellers (10+ resolutions in the month)'], [B.soft, 'Consumption-priced resellers with active clients (number at base)'], [B.mint, 'Consumption revenue from consumption-priced accounts (right axis)'], [B.lav, openLabel(S().openMonth, S().openMonth)]]);
+      return { columns: ['Month', 'End clients (consumption-priced resellers)', 'Consumption-priced resellers with active clients', 'Consumption revenue'], rows: data.map((q) => [fmt.monthLong(q.month), q.end_clients, q.resellers, q.consumption != null ? fmt.usdFull(q.consumption) : '']) };
     },
     note() {
       const ec = rows(id('end_clients')); if (!ec) return '';
       const s = S(), e = pick(ec, (x) => x.month === s.ecMonth), c = pick(ec, (x) => x.month === s.ecComp);
       if (!e || !c) return '';
-      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Months before September 2025 come from the Wins tab as published.`;
+      return `${e.end_clients} end clients in ${openLabel(s.ecMonth, s.openMonth)} vs ${c.end_clients} in ${fmt.monthLong(s.ecComp)} (${fmt.pct(chg(+e.end_clients, +c.end_clients))}), across ${e.resellers} resellers with active clients. Counts are monthly and cover only resellers on the consumption pricing model; an end client counts in a month with 10 or more resolutions.`;
     },
   };
 
@@ -1227,6 +1273,8 @@
     'c-topdeals': () => CARDS['c-topdeals'].note().replace(/\.$/, ''),
     'c-pipeline': () => { const p = rows(id('pipeline_open')); if (!p || !rows('bookings')) return ''; const tot = d3.sum(p, (r) => +r.pipeline_value);
       const lq = lastQ(); return `${fmt.usd(tot)} open pipeline, ${d3.format('.1f')(tot / lq.tcv)}x ${lq.label} software bookings`; },
+    'c-pipestage': () => { const p = rows(id('pipeline_open')); if (!p) return ''; const nb = d3.sum(p.filter((r) => r.pipeline !== 'Upsell'), (r) => +r.pipeline_value), ex = d3.sum(p.filter((r) => r.pipeline === 'Upsell'), (r) => +r.pipeline_value);
+      return `${fmt.usd(nb + ex)} open pipeline: ${fmt.usd(nb)} new business, ${fmt.usd(ex)} expansion`; },
     'c-pipetable': () => { const p = rows(id('pipeline_open')); if (!p) return ''; return `${fmt.usd(d3.sum(p, (r) => +r.pipeline_value))} across ${d3.sum(p, (r) => +r.deals)} open deals`; },
     'c-deckfollow': () => { const r = rows(id('deck_pipeline')); if (!r) return ''; const open = r.filter((x) => dealState(x) === 'open'), won = r.filter((x) => dealState(x) === 'won');
       return `${won.length} of the ${r.length} July deck deals won, ${open.length} still open at ${fmt.usd(d3.sum(open, (x) => +x.value_now))} TCV`; },
@@ -1234,7 +1282,8 @@
       return `December revenue now ${fmt.usd(dec.base_revenue)} to ${fmt.usd(dec.upside_revenue)} against ${fmt.usd(dec.deck_revenue)} in the July deck`; },
     'c-pipemove': () => { const pw = rows('pipeline_windows'); if (!pw) return ''; const c = pw.filter((x) => x.period === S().win); return `${fmt.usd(d3.sum(c, (x) => x.created))} of new pipeline created in ${WIN_LABEL[S().win]}`; },
     'c-endclients': () => { const ec = rows(id('end_clients')); if (!ec) return ''; const s = S(), e = pick(ec, (x) => x.month === s.ecMonth) || ec[ec.length - 1];
-      const max = d3.max(ec, (x) => +x.end_clients); return +e.end_clients >= max ? `Reseller end clients at a record ${e.end_clients}` : `${e.end_clients} reseller end clients across ${e.resellers} resellers`; },
+      const max = d3.max(ec, (x) => +x.end_clients); const mtd = e.month === s.openMonth ? ', month to date' : '';
+      return +e.end_clients >= max ? `End clients of consumption-priced resellers at a record ${e.end_clients}${mtd}` : `${e.end_clients} end clients across ${e.resellers} consumption-priced resellers${mtd}`; },
     'c-custdeck': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), m = winRows(mw, s.win, (r) => r.channel === 'Total'), c = winRows(mw, s.winComp, (r) => r.channel === 'Total');
       return `${m.customers_ending} paying customers, ${fmt.signedN(m.customers_ending - c.customers_ending)} vs ${WIN_LABEL[s.winComp]}`; },
     'c-customers': () => { const mw = rows('mrr_windows'); if (!mw) return ''; const s = S(), r = winRows(mw, s.win, (x) => x.channel === 'Reseller'), c = winRows(mw, s.winComp, (x) => x.channel === 'Reseller');
