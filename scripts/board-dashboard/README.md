@@ -38,6 +38,10 @@ Nothing here writes to a source sheet.
   Express in July 2026. The KPI sheet still shows March's −$1,000 cancellation
   and +$1,000 expansion, which net to zero.
 
+- **Enterprise pipeline is retired.** It was folded into the Opportunity
+  pipeline; the pipeline cards count any deal still in it as Opportunity, and
+  its closed-lost deals will be migrated there in HubSpot.
+
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in

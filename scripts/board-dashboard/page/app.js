@@ -595,9 +595,11 @@
     kind: 'live', src: ['pipeline_open'], data: () => [id('pipeline_open')],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const NAME = { Opportunity: 'New business (Opportunity pipeline)', Enterprise: 'New business (Enterprise pipeline)', Upsell: 'Expansion (existing customers)' };
-      const groups = ['Opportunity', 'Enterprise', 'Upsell'].map((pl) => {
-        const st = d3.rollups(d[id('pipeline_open')].filter((r) => r.pipeline === pl), (v) => ({ deals: d3.sum(v, (r) => +r.deals), value: d3.sum(v, (r) => +r.pipeline_value), order: +v[0].stage_order }), (r) => r.stage)
+      // The Enterprise pipeline is retired and folded into Opportunity; any deal still in it counts there.
+      const NAME = { Opportunity: 'New business (Opportunity pipeline)', Upsell: 'Expansion (existing customers)' };
+      const pipeOf = (r) => (r.pipeline === 'Enterprise' ? 'Opportunity' : r.pipeline);
+      const groups = ['Opportunity', 'Upsell'].map((pl) => {
+        const st = d3.rollups(d[id('pipeline_open')].filter((r) => pipeOf(r) === pl), (v) => ({ deals: d3.sum(v, (r) => +r.deals), value: d3.sum(v, (r) => +r.pipeline_value), order: +v[0].stage_order }), (r) => r.stage)
           .map(([stage, v]) => ({ stage, ...v })).sort((a, z) => a.order - z.order);
         return { pl, name: NAME[pl], st, deals: d3.sum(st, (s) => s.deals), value: d3.sum(st, (s) => s.value) };
       }).filter((g) => g.st.length);
@@ -609,7 +611,7 @@
       const labW = d3.max(groups.flatMap((g) => g.st), (s) => textW(svg, s.stage, 'ub-lab')) + 14;
       const valW = d3.max(groups.flatMap((g) => g.st), (s) => textW(svg, fmtV(s), 'ub-tick')) + 12;
       const x = d3.scaleLinear([0, d3.max(groups.flatMap((g) => g.st), (s) => s.value) || 1], [0, Math.max(40, w - labW - valW)]);
-      const colors = { Opportunity: B.deep, Enterprise: B.peri, Upsell: B.mint };
+      const colors = { Opportunity: B.deep, Upsell: B.mint };
       let y0 = 0;
       groups.forEach((g, gi) => {
         svg.append('text').attr('x', 0).attr('y', y0 + 18).attr('class', 'ub-lab').attr('font-weight', 600).text(g.name);
@@ -1159,8 +1161,9 @@
     kind: 'live', src: ['pipeline_open'], data: () => [id('pipeline_open')],
     draw(el, opt) {
       const d = need(el, this.data()); if (!d) return null;
-      const p = d[id('pipeline_open')].map((r) => ({ ...r, pipeline: r.pipeline || (r.block === 'Upsell' ? 'Upsell' : 'Opportunity'), pipeline_value: +r.pipeline_value, deals: +r.deals, stage_order: +r.stage_order }));
-      const pipes = ['Opportunity', 'Enterprise', 'Upsell'];
+      // The Enterprise pipeline is retired and folded into Opportunity; any deal still in it counts there.
+      const p = d[id('pipeline_open')].map((r) => ({ ...r, pipeline: r.pipeline === 'Enterprise' ? 'Opportunity' : r.pipeline || (r.block === 'Upsell' ? 'Upsell' : 'Opportunity'), pipeline_value: +r.pipeline_value, deals: +r.deals, stage_order: +r.stage_order }));
+      const pipes = ['Opportunity', 'Upsell'];
       const head = ['Pipeline', 'Stage', 'Deals', 'Value'], body2 = [];
       pipes.forEach((pp) => {
         const r = p.filter((x) => x.pipeline === pp);
@@ -1176,7 +1179,7 @@
     note() {
       const p = rows(id('pipeline_open')); if (!p) return '';
       const tot = d3.sum(p, (r) => +r.pipeline_value), n = d3.sum(p, (r) => +r.deals);
-      return `Full pipeline ${fmt.usd(tot)} across ${n} deals, by pipeline, block and stage.`;
+      return `Full pipeline ${fmt.usd(tot)} across ${n} deals, by pipeline and stage.`;
     },
   };
 
