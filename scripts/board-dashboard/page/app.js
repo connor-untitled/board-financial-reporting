@@ -2132,7 +2132,7 @@
   }
 
   // ---------- as-of footers
-  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Cash Forecast Q4'26-Q1'27 targets (read only)", opps_channel: 'HubSpot deals via Metabase', churn_reasons: 'HubSpot company churn reasons via Metabase', deck_pipeline: 'HubSpot deals via Metabase' };
+  const LIVE_LABEL = { end_clients: 'Metabase · platform activity', mqls: 'HubSpot contacts via Metabase', pipeline_open: 'HubSpot deals via Metabase', opps_split: 'HubSpot deals via Metabase', plan_targets: "CFO.ai · Board pack Oct 2026 snapshot targets (read only)", opps_channel: 'HubSpot deals via Metabase', churn_reasons: 'HubSpot company churn reasons via Metabase', deck_pipeline: 'HubSpot deals via Metabase' };
   function footer(c) {
     const info = rows('snapshot_info') || [];
     const parts = (CARDS[c].src || []).filter((x) => x !== 'goals').map((x) => {
