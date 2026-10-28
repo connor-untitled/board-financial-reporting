@@ -45,16 +45,15 @@ Nothing here writes to a source sheet.
 ## Plan tracker
 
 The Plan tracker tab scores October 2026 to March 2027 against the targets in
-CFO.ai's Cash Forecast Q4'26-Q1'27 scenario (table "Monthly sales & retention
-targets by channel", for the case selected in its Case toggle).
+CFO.ai's Main Scenario (table "Monthly sales & retention targets by channel",
+for the case selected in its Case toggle).
 
-- **Scenario (October 21, 2026).** Cash Forecast was renamed "Main rebuild
-  (draft)" and is being reworked before it merges into Main Scenario. The
-  `plan_targets` dataset now reads `Board pack Oct 2026 (snapshot)#38d`, a
-  snapshot of Cash Forecast pinned at change 339334, so the targets stay as the
-  board saw them. Repoint it to Main Scenario once the merge is done. The
-  snapshot's Case toggle reads Base; `plan_targets_frozen` is still the Upside
-  read of October 16.
+- **Scenario (October 28, 2026).** The rebuilt Cash Forecast ("Main rebuild
+  (draft)") was merged into Main Scenario, and the `plan_targets` dataset now
+  reads Main Scenario. Main's Case toggle reads Upside, the same case as
+  `plan_targets_frozen` (read October 16). The pre-merge state is kept as the
+  snapshot "Main before rebuild merge (Oct 28 2026)", and the targets as the
+  board saw them on October 21 stay in `Board pack Oct 2026 (snapshot)#38d`.
 
 - **CFO.ai is read only.** The `plan_targets` dataset calls
   `inspect_table_blocks` and nothing else; changes to the model are made in

@@ -15,7 +15,7 @@ def card(cid, title, ds, img=True, table=True, extra='', tbl=None):
     </div>'''
 seg=lambda cls,label,opts: f'<div class="ub-seg {cls}" role="group" aria-label="{label}">'+''.join(f'<button type="button" data-v="{v}">{t}</button>' for v,t in opts)+'</div>'
 grid=lambda *c: '<div class="ub-grid2">'+''.join(c)+'</div>'
-plan_notes=["Targets are the 'Monthly sales & retention targets by channel' table in CFO.ai's Board pack Oct 2026 snapshot (Cash Forecast Q4'26-Q1'27 as of October 21, 2026), for whichever case is selected there. The dashboard only reads them; nothing here changes the model.",
+plan_notes=["Targets are the 'Monthly sales & retention targets by channel' table in CFO.ai's Main Scenario, for whichever case is selected there. The dashboard only reads them; nothing here changes the model.",
 "CFO.ai works on a last-close basis: actuals move in after the books close, usually the 15th to 20th of the following month.",
 "New-customer MRR and new customers come from the Wins tabs by signed date, so the open month counts to date and its pace is the month-to-date figure scaled to the full month.",
 "All new MRR is every software MRR row in the Wins tabs by signed date: new customers plus upsells, reactivations and conversions from existing customers. Its target is CFO.ai's new-customer MRR target plus its expansion MRR target. The Wins tab stays the source until sources are standardized; the KPI sheet's month-close expansion can differ from signed upsells.",
